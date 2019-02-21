@@ -873,9 +873,38 @@ class AllReducer {
     /** \brief this >monitor . init. */
     this->device_ordinals = device_ordinals;
     comms.resize(device_ordinals.size());
-    dh::safe_nccl(ncclCommInitAll(comms.data(),
-                                  static_cast<int>(device_ordinals.size()),
-                                  device_ordinals.data()));
+
+    if (rabit::IsDistributed()) {
+      int rabit_rank = rabit::GetRank();
+      int nproc = rabit::GetWorldSize();
+
+      // Create a unique id and share it with all workers.
+      ncclUniqueId id;
+      if (rabit_rank == 0) {
+        dh::safe_nccl(ncclGetUniqueId(&id));
+      }
+      rabit::Broadcast(&id, sizeof(id), 0);
+
+      // Compute the cumulative sum of the number of GPUs.
+      std::vector<int> n_devices(nproc, 0);
+      n_devices[rabit_rank] = device_ordinals.size();
+      rabit::Allreduce<rabit::op::Sum>(&n_devices[0], n_devices.size());
+      std::partial_sum(n_devices.begin(), n_devices.end(), n_devices.begin());
+
+      // Create the communicators.
+      int nccl_rank = rabit_rank == 0 ? 0 : n_devices[rabit_rank-1];
+      int nccl_ranks = n_devices.back();
+      GroupStart();
+      for (size_t i = 0; i < device_ordinals.size(); i++) {
+        safe_cuda(cudaSetDevice(device_ordinals[i]));
+        dh::safe_nccl(ncclCommInitRank(&comms[i], nccl_ranks, id, nccl_rank+i));
+      }
+      GroupEnd();
+    } else {
+      dh::safe_nccl(ncclCommInitAll(comms.data(),
+                                    static_cast<int>(device_ordinals.size()),
+                                    device_ordinals.data()));
+    }
     streams.resize(device_ordinals.size());
     for (size_t i = 0; i < device_ordinals.size(); i++) {
       safe_cuda(cudaSetDevice(device_ordinals[i]));
