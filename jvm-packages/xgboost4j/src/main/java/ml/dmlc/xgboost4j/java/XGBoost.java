@@ -174,6 +174,7 @@ public class XGBoost {
     }
 
     //begin to train
+    long startTime = System.nanoTime();
     for (int iter = booster.getVersion() / 2; iter < round; iter++) {
       if (booster.getVersion() % 2 == 0) {
         if (obj != null) {
@@ -211,6 +212,9 @@ public class XGBoost {
       }
       booster.saveRabitCheckpoint();
     }
+    long endTime = System.nanoTime();
+    long durationMillis = (endTime - startTime) / 1000000;
+    System.out.println("Inner training loop took " + durationMillis + " milliseconds.");
     return booster;
   }
 
