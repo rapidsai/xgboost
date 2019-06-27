@@ -9,7 +9,7 @@
         <version>0.90-Beta</version>
     </parent>
     <artifactId>xgboost4j</artifactId>
-    <version>${self.version}</version>
+    <version>0.90-Beta</version>
     <packaging>jar</packaging>
 
     <dependencies>

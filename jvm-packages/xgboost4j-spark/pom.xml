@@ -9,7 +9,7 @@
         <version>0.90-Beta</version>
     </parent>
     <artifactId>xgboost4j-spark</artifactId>
-    <version>${self.version}</version>
+    <version>0.90-Beta</version>
     <build>
         <plugins>
             <plugin>
@@ -25,7 +25,7 @@
         <dependency>
             <groupId>ai.rapids</groupId>
             <artifactId>xgboost4j</artifactId>
-            <version>${self.version}</version>
+            <version>0.90-Beta</version>
             <classifier>${cudf.classifier}</classifier>
         </dependency>
         <dependency>

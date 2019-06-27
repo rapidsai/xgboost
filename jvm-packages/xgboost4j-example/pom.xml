@@ -9,7 +9,7 @@
         <version>0.90-SNAPSHOT</version>
     </parent>
     <artifactId>xgboost4j-example</artifactId>
-    <version>${self.version}</version>
+    <version>0.90-Beta</version>
     <packaging>jar</packaging>
     <build>
         <plugins>
@@ -26,7 +26,7 @@
         <dependency>
             <groupId>ai.rapids</groupId>
             <artifactId>xgboost4j-spark</artifactId>
-            <version>${self.version}</version>
+            <version>0.90-Beta</version>
             <classifier>${cudf.classifier}</classifier>
         </dependency>
         <dependency>
@@ -38,7 +38,7 @@
         <dependency>
             <groupId>ai.rapids</groupId>
             <artifactId>xgboost4j-flink</artifactId>
-            <version>${self.version}</version>
+            <version>0.90-Beta</version>
         </dependency>
         <dependency>
             <groupId>org.apache.commons</groupId>
