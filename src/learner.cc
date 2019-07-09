@@ -204,6 +204,7 @@ class LearnerImpl : public Learner {
     if (this->gbm_->UseGPU()) {
       if (cfg_.find("n_gpus") == cfg_.cend()) {
         tparam_.n_gpus = 1;
+        cfg_["n_gpus"] = 1;
       }
       if (tparam_.n_gpus != 1) {
         LOG(WARNING) << "Multi-GPU training is deprecated. "
@@ -334,9 +335,14 @@ class LearnerImpl : public Learner {
       }
     }
     {
+      if (name_gbm_ == "gbtree" && gbm_->UseGPU()) {
+        mparam.contain_extra_attrs = 1;
+        extra_attr.emplace_back("SAVED_PARAM_predictor", "gpu_predictor");
+      }
+
       // Write `predictor`, `n_gpus`, `gpu_id` parameters as extra attributes
       for (const auto& key : std::vector<std::string>{
-                                   "predictor", "n_gpus", "gpu_id"}) {
+                                   "n_gpus", "gpu_id"}) {
         auto it = cfg_.find(key);
         if (it != cfg_.end()) {
           mparam.contain_extra_attrs = 1;
