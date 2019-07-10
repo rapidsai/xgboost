@@ -204,7 +204,7 @@ class LearnerImpl : public Learner {
     if (this->gbm_->UseGPU()) {
       if (cfg_.find("n_gpus") == cfg_.cend()) {
         tparam_.n_gpus = 1;
-        cfg_["n_gpus"] = 1;
+        cfg_["n_gpus"] = common::ToString(tparam_.n_gpus);
       }
       if (tparam_.n_gpus != 1) {
         LOG(WARNING) << "Multi-GPU training is deprecated. "
