@@ -43,17 +43,17 @@ except ImportError:
 
 # cudf
 try:
-    from cudf.dataframe import DataFrame as CUDF
-    from cudf.dataframe.column import Column as CUDF_COL
+    from cudf import DataFrame as CUDF
+    from cudf.core.column import Column as CUDF_COL
     CUDF_INSTALLED = True
 except ImportError:
 
     class CUDF(object):
-        """ dummy object for cudf.dataframe.DataFrame """
+        """ dummy object for cudf.core.dataframe.DataFrame  """
         pass
 
     class CUDF_COL(object):
-        """ dummy object for cudf.dataframe.column.Column """
+        """ dummy object for cudf.core.column.column.Column """
         pass
 
     CUDF_INSTALLED = False
