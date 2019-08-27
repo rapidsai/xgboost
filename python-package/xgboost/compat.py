@@ -44,7 +44,7 @@ except ImportError:
 # cudf
 try:
     from cudf import DataFrame as CUDF
-    from cudf.core.column import Column as CUDF_COL
+    from cudf import Series as CUDF_SER
     CUDF_INSTALLED = True
 except ImportError:
 
@@ -52,8 +52,8 @@ except ImportError:
         """ dummy object for cudf.core.dataframe.DataFrame  """
         pass
 
-    class CUDF_COL(object):
-        """ dummy object for cudf.core.column.column.Column """
+    class CUDF_SER(object):
+        """ dummy object for cudf.core.series.Series """
         pass
 
     CUDF_INSTALLED = False

@@ -19,7 +19,7 @@ import warnings
 import numpy as np
 import scipy.sparse
 
-from .compat import (STRING_TYPES, PY3, DataFrame, CUDF, CUDF_COL, MultiIndex, py_str,
+from .compat import (STRING_TYPES, PY3, DataFrame, CUDF, CUDF_SER, MultiIndex, py_str,
                      PANDAS_INSTALLED, DataTable)
 from .libpath import find_lib_path
 
@@ -416,14 +416,14 @@ class DMatrix(object):
         if label is not None:
             if isinstance(label, np.ndarray):
                 self.set_label_npy2d(label)
-            elif isinstance(label, (CUDF, CUDF_COL)):
+            elif isinstance(label, (CUDF, CUDF_SER)):
                 self.set_cudf_info('label', label)
             else:
                 self.set_label(label)
         if weight is not None:
             if isinstance(weight, np.ndarray):
                 self.set_weight_npy2d(weight)
-            elif isinstance(weight, (CUDF, CUDF_COL)):
+            elif isinstance(weight, (CUDF, CUDF_SER)):
                 self.set_cudf_info('weight', weight)
             else:
                 self.set_weight(weight)
