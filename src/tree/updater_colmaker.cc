@@ -12,6 +12,7 @@
 #include <cmath>
 #include <algorithm>
 
+#include "xgboost/json.h"
 #include "param.h"
 #include "constraints.h"
 #include "../common/random.h"
@@ -28,8 +29,19 @@ class ColMaker: public TreeUpdater {
  public:
   void Configure(const Args& args) override {
     param_.UpdateAllowUnknown(args);
-    spliteval_.reset(SplitEvaluator::Create(param_.split_evaluator));
-    spliteval_->Init(args);
+    if (!spliteval_) {
+      spliteval_.reset(SplitEvaluator::Create(param_.split_evaluator));
+    }
+    spliteval_->Init(&param_);
+  }
+
+  void LoadConfig(Json const& in) override {
+    auto const& config = get<Object const>(in);
+    fromJson(config.at("train_param"), &this->param_);
+  }
+  void SaveConfig(Json* p_out) const override {
+    auto& out = *p_out;
+    out["train_param"] = toJson(param_);
   }
 
   char const* Name() const override {
@@ -146,21 +158,11 @@ class ColMaker: public TreeUpdater {
     inline void InitData(const std::vector<GradientPair>& gpair,
                          const DMatrix& fmat,
                          const RegTree& tree) {
-      CHECK_EQ(tree.param.num_nodes, tree.param.num_roots)
-          << "ColMaker: can only grow new tree";
-      const std::vector<unsigned>& root_index = fmat.Info().root_index_;
       {
         // setup position
         position_.resize(gpair.size());
         CHECK_EQ(fmat.Info().num_row_, position_.size());
-        if (root_index.size() == 0) {
-          std::fill(position_.begin(), position_.end(), 0);
-        } else {
-          for (size_t ridx = 0; ridx <  position_.size(); ++ridx) {
-            position_[ridx] = root_index[ridx];
-            CHECK_LT(root_index[ridx], (unsigned)tree.param.num_roots);
-          }
-        }
+        std::fill(position_.begin(), position_.end(), 0);
         // mark delete for the deleted datas
         for (size_t ridx = 0; ridx < position_.size(); ++ridx) {
           if (gpair[ridx].GetHess() < 0.0f) position_[ridx] = ~position_[ridx];
@@ -192,9 +194,7 @@ class ColMaker: public TreeUpdater {
       {
         // expand query
         qexpand_.reserve(256); qexpand_.clear();
-        for (int i = 0; i < tree.param.num_roots; ++i) {
-          qexpand_.push_back(i);
-        }
+        qexpand_.push_back(0);
       }
     }
     /*!
@@ -717,7 +717,7 @@ class DistColMaker : public ColMaker {
     pruner_.reset(TreeUpdater::Create("prune", tparam_));
     pruner_->Configure(args);
     spliteval_.reset(SplitEvaluator::Create(param_.split_evaluator));
-    spliteval_->Init(args);
+    spliteval_->Init(&param_);
   }
 
   char const* Name() const override {

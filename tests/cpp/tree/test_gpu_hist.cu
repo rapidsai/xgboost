@@ -251,6 +251,7 @@ void TestHistogramIndexImpl() {
 
   // Build 2 matrices and build a histogram maker with that
   tree::GPUHistMakerSpecialised<GradientPairPrecise> hist_maker, hist_maker_ext;
+
   std::unique_ptr<DMatrix> hist_maker_dmat(
     CreateSparsePageDMatrixWithRC(kNRows, kNCols, 0, true));
 

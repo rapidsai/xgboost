@@ -4,7 +4,7 @@ import unittest
 import numpy as np
 import subprocess
 import os
-import sys
+import json
 import xgboost as xgb
 from xgboost import XGBClassifier
 
@@ -50,7 +50,7 @@ class TestPickling(unittest.TestCase):
             command += ' '
 
         cuda_environment = {'CUDA_VISIBLE_DEVICES': ''}
-        env = os.environ
+        env = os.environ.copy()
         # Passing new_environment directly to `env' argument results
         # in failure on Windows:
         #    Fatal Python error: _Py_HashRandomization_Init: failed to
@@ -61,6 +61,21 @@ class TestPickling(unittest.TestCase):
         status = subprocess.call(command, env=env, shell=True)
         assert status == 0
         os.remove(model_path)
+
+    def test_use_gpu_predictor(self):
+        x, y = build_dataset()
+        train_x = xgb.DMatrix(x, label=y)
+        param = {'tree_method': 'gpu_hist',
+                 'verbosity': 3}
+        bst = xgb.train(param, train_x)
+
+        save_pickle(bst, model_path)
+
+        bst = load_pickle(model_path)
+        config = bst.save_config()
+        config = json.loads(config)
+        assert config['Learner']['gradient_booster']['gbtree_train_param'][
+            'predictor'] == 'gpu_predictor'
 
     def test_predict_sklearn_pickle(self):
         x, y = build_dataset()

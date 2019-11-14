@@ -55,6 +55,12 @@ class JsonReader {
   } cursor_;
 
   StringView raw_str_;
+  bool initialized_;
+
+ public:
+  size_t Pos() const { return cursor_.Pos(); }
+  size_t Length() const { return raw_str_.size(); }
+  bool Initialized() const { return initialized_; }
 
  protected:
   void SkipSpaces();
@@ -109,8 +115,9 @@ class JsonReader {
 
  public:
   explicit JsonReader(StringView str) :
-      raw_str_{str} {}
+      raw_str_{str}, initialized_{true} {}
 
+  JsonReader() : initialized_{false} {};
   virtual ~JsonReader() = default;
 
   Json Load();

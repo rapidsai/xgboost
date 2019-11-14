@@ -17,6 +17,7 @@
 #include <utility>
 
 #include "xgboost/base.h"
+#include "xgboost/json.h"
 #include "xgboost/tree_updater.h"
 #include "param.h"
 #include "constraints.h"
@@ -35,6 +36,15 @@ class BaseMaker: public TreeUpdater {
  public:
   void Configure(const Args& args) override {
     param_.UpdateAllowUnknown(args);
+  }
+
+  void LoadConfig(Json const& in) override {
+    auto const& config = get<Object const>(in);
+    fromJson(config.at("train_param"), &this->param_);
+  }
+  void SaveConfig(Json* p_out) const override {
+    auto& out = *p_out;
+    out["train_param"] = toJson(param_);
   }
 
  protected:
@@ -128,21 +138,10 @@ class BaseMaker: public TreeUpdater {
   inline void InitData(const std::vector<GradientPair> &gpair,
                        const DMatrix &fmat,
                        const RegTree &tree) {
-    CHECK_EQ(tree.param.num_nodes, tree.param.num_roots)
-        << "TreeMaker: can only grow new tree";
-    const std::vector<unsigned> &root_index =  fmat.Info().root_index_;
     {
       // setup position
       position_.resize(gpair.size());
-      if (root_index.size() == 0) {
-        std::fill(position_.begin(), position_.end(), 0);
-      } else {
-        for (size_t i = 0; i < position_.size(); ++i) {
-          position_[i] = root_index[i];
-          CHECK_LT(root_index[i], (unsigned)tree.param.num_roots)
-              << "root index exceed setting";
-        }
-      }
+      std::fill(position_.begin(), position_.end(), 0);
       // mark delete for the deleted datas
       for (size_t i = 0; i < position_.size(); ++i) {
         if (gpair[i].GetHess() < 0.0f) position_[i] = ~position_[i];
@@ -160,9 +159,7 @@ class BaseMaker: public TreeUpdater {
     {
       // expand query
       qexpand_.reserve(256); qexpand_.clear();
-      for (int i = 0; i < tree.param.num_roots; ++i) {
-        qexpand_.push_back(i);
-      }
+      qexpand_.push_back(0);
       this->UpdateNode2WorkIndex(tree);
     }
     this->interaction_constraints_.Configure(param_, fmat.Info().num_col_);

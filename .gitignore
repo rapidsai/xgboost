@@ -74,6 +74,7 @@ tags
 *.class
 target
 *.swp
+.gdb_history
 
 # cpp tests and gcov generated files
 *.gcov

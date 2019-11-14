@@ -8,23 +8,23 @@
 #define XGBOOST_GBM_GBTREE_H_
 
 #include <dmlc/omp.h>
-#include <dmlc/parameter.h>
-
-#include <xgboost/logging.h>
-#include <xgboost/gbm.h>
-#include <xgboost/predictor.h>
-#include <xgboost/tree_updater.h>
-#include <xgboost/parameter.h>
 
 #include <vector>
 #include <map>
 #include <memory>
 #include <utility>
 #include <string>
+#include <unordered_map>
 
-#include "gbtree_model.h"
+#include "xgboost/logging.h"
+#include "xgboost/gbm.h"
+#include "xgboost/predictor.h"
+#include "xgboost/tree_updater.h"
+#include "xgboost/parameter.h"
+#include "xgboost/json.h"
 #include "xgboost/host_device_vector.h"
 
+#include "gbtree_model.h"
 #include "../common/common.h"
 #include "../common/timer.h"
 
@@ -78,7 +78,6 @@ struct GBTreeTrainParam : public XGBoostParameter<GBTreeTrainParam> {
         .add_enum("update", TreeProcessType::kUpdate)
         .describe("Whether to run the normal boosting process that creates new trees,"\
                   " or to update the trees in an existing model.");
-    // add alias
     DMLC_DECLARE_ALIAS(updater_seq, updater);
     DMLC_DECLARE_FIELD(predictor)
       .set_default("cpu_predictor")
@@ -142,10 +141,13 @@ struct DartTrainParam : public XGBoostParameter<DartTrainParam> {
 // gradient boosted trees
 class GBTree : public GradientBooster {
  public:
-  explicit GBTree(bst_float base_margin) : model_(base_margin) {}
+  explicit GBTree(LearnerModelParam const* booster_config) : model_(booster_config) {}
 
   void InitCache(const std::vector<std::shared_ptr<DMatrix> > &cache) {
-    cache_ = cache;
+    cache_ = std::make_shared<std::unordered_map<DMatrix*, PredictionCacheEntry>>();
+    for (std::shared_ptr<DMatrix> const& d : cache) {
+      (*cache_)[d.get()].data = d;
+    }
   }
 
   void Configure(const Args& cfg) override;
@@ -167,24 +169,27 @@ class GBTree : public GradientBooster {
         tparam_.tree_method == TreeMethod::kGPUHist;
   }
 
-  void Load(dmlc::Stream* fi) override {
-    model_.Load(fi);
-
-    this->cfg_.clear();
-    this->cfg_.emplace_back(std::string("num_feature"),
-                            common::ToString(model_.param.num_feature));
-  }
-
   GBTreeTrainParam const& GetTrainParam() const {
     return tparam_;
+  }
+
+  void Load(dmlc::Stream* fi) override {
+    model_.Load(fi);
+    this->cfg_.clear();
   }
 
   void Save(dmlc::Stream* fo) const override {
     model_.Save(fo);
   }
 
+  void LoadConfig(Json const& in) override;
+  void SaveConfig(Json* p_out) const override;
+
+  void SaveModel(Json* p_out) const override;
+  void LoadModel(Json const& in) override;
+
   bool AllowLazyCheckPoint() const override {
-    return model_.param.num_output_group == 1 ||
+    return model_.learner_model_param_->num_output_group == 1 ||
         tparam_.updater_seq.find("distcol") != std::string::npos;
   }
 
@@ -201,7 +206,7 @@ class GBTree : public GradientBooster {
                unsigned root_index) override {
     CHECK(configured_);
     cpu_predictor_->PredictInstance(inst, out_preds, model_,
-                                    ntree_limit, root_index);
+                                    ntree_limit);
   }
 
   void PredictLeaf(DMatrix* p_fmat,
@@ -294,6 +299,7 @@ class GBTree : public GradientBooster {
   // training parameter
   GBTreeTrainParam tparam_;
   // ----training fields----
+  bool showed_updater_warning_ {false};
   bool specified_updater_   {false};
   bool specified_predictor_ {false};
   bool configured_ {false};
@@ -301,8 +307,11 @@ class GBTree : public GradientBooster {
   Args cfg_;
   // the updaters that can be applied to each of tree
   std::vector<std::unique_ptr<TreeUpdater>> updaters_;
-  // Cached matrices
-  std::vector<std::shared_ptr<DMatrix>> cache_;
+  /**
+   * \brief Map of matrices and associated cached predictions to facilitate
+   * storing and looking up predictions.
+   */
+  std::shared_ptr<std::unordered_map<DMatrix*, PredictionCacheEntry>> cache_;
   std::unique_ptr<Predictor> cpu_predictor_;
 #if defined(XGBOOST_USE_CUDA)
   std::unique_ptr<Predictor> gpu_predictor_;

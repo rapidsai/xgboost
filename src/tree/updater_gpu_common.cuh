@@ -39,7 +39,7 @@ struct GPUTrainingParam {
 using NodeIdT = int32_t;
 
 /** used to assign default id to a Node */
-static const int kUnusedNode = -1;
+static const bst_node_t kUnusedNode = -1;
 
 /**
  * @enum DefaultDirection node.cuh
@@ -91,6 +91,17 @@ struct DeviceSplitCandidate {
     }
   }
   XGBOOST_DEVICE bool IsValid() const { return loss_chg > 0.0f; }
+
+  friend std::ostream& operator<<(std::ostream& os, DeviceSplitCandidate s) {
+    os << "DeviceSplitCandidate:\n"
+       << "loss_chg: " << s.loss_chg << ", "
+       << "dir: " << s.dir << ", "
+       << "findex: " << s.findex << ", "
+       << "fvalue: " << s.fvalue << ", "
+       << "left_sum: " << s.left_sum << ", "
+       << "right_sum: " << s.right_sum << std::endl;
+    return os;
+  }
 };
 
 struct DeviceSplitCandidateReduceOp {
@@ -166,6 +177,19 @@ struct DeviceNodeStats {
   /** Tells whether this node is a leaf of the decision tree */
   HOST_DEV_INLINE bool IsLeaf() const {
     return (!IsUnused() && (fidx == kUnusedNode));
+  }
+
+  friend std::ostream& operator<<(std::ostream& os, DeviceNodeStats s) {
+    os << "DeviceNodeStats:\n"
+       << "sum_gradients: "  << s.sum_gradients << ", "
+       << "root_gain: " << s.root_gain << ", "
+       << "weight: " << s.weight << ", "
+       << "dir: " << s.dir << ", "
+       << "fvalue: " << s.fvalue << ", "
+       << "left_sum: " << s.right_sum << ", "
+       << "fidx: " << s.fidx << ", "
+       << "idx: " << s.idx << std::endl;
+    return os;
   }
 };
 

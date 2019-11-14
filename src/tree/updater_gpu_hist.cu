@@ -18,6 +18,7 @@
 #include "xgboost/host_device_vector.h"
 #include "xgboost/parameter.h"
 #include "xgboost/span.h"
+#include "xgboost/json.h"
 
 #include "../common/common.h"
 #include "../common/compressed_iterator.h"
@@ -1110,12 +1111,12 @@ class GPUHistMakerSpecialised {
     common::MemoryBufferStream fs(&s_model);
     int rank = rabit::GetRank();
     if (rank == 0) {
-      local_tree->SaveModel(&fs);
+      local_tree->Save(&fs);
     }
     fs.Seek(0);
     rabit::Broadcast(&s_model, 0);
     RegTree reference_tree {};  // rank 0 tree
-    reference_tree.LoadModel(&fs);
+    reference_tree.Load(&fs);
     CHECK(*local_tree == reference_tree);
   }
 
@@ -1129,8 +1130,7 @@ class GPUHistMakerSpecialised {
     maker->UpdateTree(gpair, p_fmat, p_tree, &reducer_);
   }
 
-  bool UpdatePredictionCache(
-      const DMatrix* data, HostDeviceVector<bst_float>* p_out_preds) {
+  bool UpdatePredictionCache(const DMatrix* data, HostDeviceVector<bst_float>* p_out_preds) {
     if (maker == nullptr || p_last_fmat_ == nullptr || p_last_fmat_ != data) {
       return false;
     }
@@ -1141,8 +1141,8 @@ class GPUHistMakerSpecialised {
     return true;
   }
 
-  TrainParam param_;           // NOLINT
-  MetaInfo* info_{};             // NOLINT
+  TrainParam param_;   // NOLINT
+  MetaInfo* info_{};   // NOLINT
 
   std::unique_ptr<GPUHistMakerDevice<GradientSumT>> maker;  // NOLINT
 
@@ -1163,7 +1163,17 @@ class GPUHistMakerSpecialised {
 class GPUHistMaker : public TreeUpdater {
  public:
   void Configure(const Args& args) override {
-    hist_maker_param_.UpdateAllowUnknown(args);
+    bool changed {false};
+    hist_maker_param_.UpdateAllowUnknown(args, &changed);
+    if (!changed && (float_maker_ || double_maker_)) {
+      if (hist_maker_param_.single_precision_histogram) {
+        float_maker_->Configure(args, tparam_);
+      } else {
+        double_maker_->Configure(args, tparam_);
+      }
+      return;
+    }
+
     float_maker_.reset();
     double_maker_.reset();
     if (hist_maker_param_.single_precision_histogram) {
@@ -1172,6 +1182,27 @@ class GPUHistMaker : public TreeUpdater {
     } else {
       double_maker_.reset(new GPUHistMakerSpecialised<GradientPairPrecise>());
       double_maker_->Configure(args, tparam_);
+    }
+  }
+
+  void LoadConfig(Json const& in) override {
+    auto const& config = get<Object const>(in);
+    fromJson(config.at("gpu_hist_train_param"), &this->hist_maker_param_);
+    if (hist_maker_param_.single_precision_histogram) {
+      float_maker_.reset(new GPUHistMakerSpecialised<GradientPair>());
+      fromJson(config.at("train_param"), &float_maker_->param_);
+    } else {
+      double_maker_.reset(new GPUHistMakerSpecialised<GradientPairPrecise>());
+      fromJson(config.at("train_param"), &double_maker_->param_);
+    }
+  }
+  void SaveConfig(Json* p_out) const override {
+    auto& out = *p_out;
+    out["gpu_hist_train_param"] = toJson(hist_maker_param_);
+    if (hist_maker_param_.single_precision_histogram) {
+      out["train_param"] = toJson(float_maker_->param_);
+    } else {
+      out["train_param"] = toJson(double_maker_->param_);
     }
   }
 
