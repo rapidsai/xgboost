@@ -142,26 +142,25 @@ int constexpr GenericParameter::kCpuId;
 
 void GenericParameter::ConfigureGpuId(bool require_gpu) {
 #if defined(XGBOOST_USE_CUDA)
-  CHECK(this->initialised_)
-      << "Internal Error: Configure GPU ID before it's initialised.";
   if (gpu_id == kCpuId) {  // 0. User didn't specify the `gpu_id'
-    if (require_gpu) {     // 1. `tree_method' or `predictor' or both are using GPU.
-      gpu_id = 0;          // 2. Use device 0 as default.
+    if (require_gpu) {     // 1. `tree_method' or `predictor' or both are using
+                           // GPU.
+      // 2. Use device 0 as default.
+      this->UpdateAllowUnknown(Args{{"gpu_id", "0"}});
     }
   }
 
   // 3. When booster is loaded from a memory image (Python pickle or R
   // raw model), number of available GPUs could be different.  Wrap around it.
   int32_t n_gpus = common::AllVisibleGPUs();
-  if (gpu_id != kCpuId && gpu_id >= n_gpus) {
-    gpu_id %= n_gpus;
+  if (n_gpus == 0) {
+    this->UpdateAllowUnknown(Args{{"gpu_id", std::to_string(kCpuId)}});
+  } else if (gpu_id != kCpuId && gpu_id >= n_gpus) {
+    this->UpdateAllowUnknown(Args{{"gpu_id", std::to_string(gpu_id % n_gpus)}});
   }
-  // 4. Check whether the `gpu_id` is matched with the one in DMatrix,
-  // this is done in `ValidateDMatrix` where information DMatrix is
-  // available.
 #else
   // Just set it to CPU, don't think about it.
-  gpu_id = kCpuId;
+  this->UpdateAllowUnknown(Args{{"gpu_id", std::to_string(kCpuId)}});
 #endif  // defined(XGBOOST_USE_CUDA)
 }
 
@@ -652,11 +651,6 @@ class LearnerImpl : public Learner {
                                          cache_, mparam_.base_score));
     }
     gbm_->Configure(args);
-    if (generic_param_.gpu_id == -1) {
-      if (this->gbm_->UseGPU()) {
-        generic_param_.gpu_id = 0;
-      }
-    }
   }
 
   // set number of features correctly.
