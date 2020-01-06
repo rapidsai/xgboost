@@ -16,7 +16,6 @@
 
 package ml.dmlc.xgboost4j.java.spark.rapids;
 
-import java.util.ArrayList;
 import java.util.List;
 
 import ai.rapids.cudf.ColumnVector;
@@ -24,18 +23,7 @@ import ai.rapids.cudf.ColumnVector;
 import ai.rapids.cudf.DType;
 import ai.rapids.cudf.Table;
 
-import org.apache.spark.sql.types.BooleanType;
-import org.apache.spark.sql.types.ByteType;
-import org.apache.spark.sql.types.DataType;
-import org.apache.spark.sql.types.DateType;
-import org.apache.spark.sql.types.DoubleType;
-import org.apache.spark.sql.types.FloatType;
-import org.apache.spark.sql.types.IntegerType;
-import org.apache.spark.sql.types.LongType;
-import org.apache.spark.sql.types.ShortType;
-import org.apache.spark.sql.types.StringType;
-import org.apache.spark.sql.types.StructType;
-import org.apache.spark.sql.types.TimestampType;
+import org.apache.spark.sql.types.*;
 
 public class GpuColumnBatch {
   private final Table table;
@@ -67,74 +55,125 @@ public class GpuColumnBatch {
     return v.getNativeCudfColumnAddress();
   }
 
-  public int[] groupByColumnWithCountHost(int groupIndex) {
-    ColumnVector cv = getColumnVector(groupIndex);
+  public ColumnVector getColumnVectorInitHost(int index) {
+    ColumnVector cv = table.getColumn(index);
     cv.ensureOnHost();
-    List<Integer> countData = new ArrayList<>();
-    int groupId = 0, groupSize = 0;
-    for (int i = 0; i < cv.getRowCount(); i ++) {
-      if(groupId != cv.getInt(i)) {
-        groupId = cv.getInt(i);
-        if (groupSize > 0) {
-          countData.add(groupSize);
-        }
-        groupSize = 1;
-      } else {
-        groupSize ++;
-      }
+    return cv;
+  }
+
+  private double getNumericValueInColumn(int dataIndex, ColumnVector cv, StructField field) {
+    DataType type = field.dataType();
+    double value;
+    if (type instanceof FloatType) {
+      value = cv.getFloat(dataIndex);
+    } else if (type instanceof IntegerType) {
+      value = cv.getInt(dataIndex);
+    } else if (type instanceof ByteType) {
+      value = cv.getByte(dataIndex);
+    } else if (type instanceof ShortType) {
+      value = cv.getShort(dataIndex);
+    } else if (type instanceof DoubleType) {
+      value = cv.getDouble(dataIndex);
+    } else if (type instanceof LongType) {
+      value = cv.getLong(dataIndex);
+    } else {
+      throw new IllegalArgumentException("Not a numeric type in column: " + field.name());
     }
-    if (groupSize > 0) {
-      countData.add(groupSize);
-    }
-    int[] counts = new int[countData.size()];
-    for (int i = 0; i < counts.length; i ++) {
-      counts[i] = countData.get(i);
-    }
-    return counts;
+    return value;
+  }
+
+  private double getNumericValueInColumn(int dataIndex, int colIndex, double defVal) {
+    ColumnVector cv = getColumnVector(colIndex);
+    cv.ensureOnHost();
+    return cv.getRowCount() > 0 ?
+            getNumericValueInColumn(dataIndex, cv, getSchema().apply(colIndex)) :
+            defVal;
+  }
+
+  public int getIntInColumn(int dataIndex, int colIndex, int defVal) {
+    return (int)getNumericValueInColumn(dataIndex, colIndex, defVal);
   }
 
   /**
-   * This is used to group the CUDF Dataset by column 'groupIndex', and merge all the rows into
-   * one row in each group based on column 'oneIndex'. For example
-   * 1 0
-   * 2 3   (0, 1, true)   0
-   * 2 3        =>        3
-   * 5 6                  6
-   * 5 6
-   * And the last row in each group is selected.
-   * @param groupIndex The index of column to group by
-   * @param oneIndex The index of column to get one value in each group
-   * @param checkEqual Whether to check all the values in one group are the same
-   * @return The native handle of the result column containing the merged data.
+   * Group data by column "groupIndex", and do "count" aggregation on column "groupIndex",
+   * while do aggregation similar to "average" on column "weightIdx", but require values in
+   * a group are equal to each other, then merge the results with "groupInfo" and "weightInfo"
+   * separately.
+   *
+   * This is used to calculate group and weight info, and support chunk loading.
+   *
+   * @param groupIdx The index of column to group by.
+   * @param weightIdx The index of column where to get a value in each group.
+   * @param prevTailGid The group id of last group in prevGroupInfo.
+   * @param groupInfo Group information calculated from earlier batches.
+   * @param weightInfo Weight information calculated from earlier batches.
+   * @return The group id of last group in current column batch.
    */
-  public long[] groupByColumnWithAggregation(int groupIndex, int oneIndex, boolean checkEqual) {
-    ColumnVector cv = getColumnVector(groupIndex);
-    cv.ensureOnHost();
-    ColumnVector aggrCV = getColumnVector(oneIndex);
-    aggrCV.ensureOnHost();
-    List<Float> onesData = new ArrayList<>();
-    int groupId = 0;
-    Float oneValue = null;
-    for (int i = 0; i < cv.getRowCount(); i ++) {
-      if(groupId != cv.getInt(i)) {
-        groupId = cv.getInt(i);
-        if (oneValue != null) {
-          onesData.add(oneValue);
+  public int groupAndAggregateOnColumnsHost(int groupIdx, int weightIdx, int prevTailGid,
+      List<Integer> groupInfo, List<Float> weightInfo) {
+    // Weight: Initialize info if having weight column
+    final boolean hasWeight = weightIdx >= 0;
+    ColumnVector aggrCV = null;
+    Float curWeight = null;
+    if (hasWeight) {
+      aggrCV = getColumnVectorInitHost(weightIdx);
+      Float firstWeight = aggrCV.getRowCount() > 0 ?
+              (float)getNumericValueInColumn(0, aggrCV, getSchema().apply(weightIdx)) : null;
+      curWeight = weightInfo.isEmpty() ? firstWeight : weightInfo.get(weightInfo.size() - 1);
+    }
+    // Initialize group info
+    ColumnVector groupCV = getColumnVectorInitHost(groupIdx);
+    StructField groupSF = getSchema().apply(groupIdx);
+    int groupId = prevTailGid;
+    int groupSize = groupInfo.isEmpty() ? 0 : groupInfo.get(groupInfo.size() - 1);
+    for (int i = 0; i < groupCV.getRowCount(); i ++) {
+      Float weight = hasWeight ?
+              (float)getNumericValueInColumn(i, aggrCV, getSchema().apply(weightIdx)) : 0;
+      int gid = (int)getNumericValueInColumn(i, groupCV, groupSF);
+      if(gid == groupId) {
+        // The same group
+        groupSize ++;
+        // Weight: Check values in the same group if having weight column
+        if (hasWeight && !weight.equals(curWeight)) {
+          throw new IllegalArgumentException("The instances in the same group have to be" +
+                  " assigned with the same weight. Unexpected weight: " + weight);
         }
-        oneValue = aggrCV.getFloat(i);
       } else {
-        if (checkEqual && oneValue != null && oneValue != aggrCV.getFloat(i)) {
-          return null;
+        // A new group, update group info
+        addOrUpdateInfos(prevTailGid, groupId, groupSize, curWeight, hasWeight, groupInfo,
+                weightInfo);
+        if (hasWeight) {
+          curWeight = weight;
         }
+        groupId = gid;
+        groupSize = 1;
       }
     }
-    if (oneValue != null) {
-      onesData.add(oneValue);
+    // handle the last group
+    addOrUpdateInfos(prevTailGid, groupId, groupSize, curWeight, hasWeight, groupInfo, weightInfo);
+    return groupId;
+  }
+
+  private static void addOrUpdateInfos(int prevTailGid, int curGid, int curGroupSize,
+      Float curWeight, boolean hasWeight, List<Integer> groupInfo, List<Float> weightInfo) {
+    if (curGroupSize <= 0) {
+      return;
     }
-    // FIXME how to release this ColumnVector?
-    ColumnVector retCV = ColumnVector.fromBoxedFloats(onesData.toArray(new Float[]{}));
-    retCV.ensureOnDevice();
-    return new long[] {retCV.getNativeCudfColumnAddress()};
+    if (groupInfo.isEmpty() || curGid != prevTailGid) {
+      // The first group of the first batch or a completely new group
+      groupInfo.add(curGroupSize);
+
+      // Weight: Add weight info
+      if (hasWeight && curWeight != null) {
+        weightInfo.add(curWeight);
+      }
+    } else {
+      // This is the case when some rows at the beginning of this batch belong to
+      // last group in previous batch, so update the group size for previous group info.
+      groupInfo.set(groupInfo.size() - 1, curGroupSize);
+
+      // No need to update the weight of last group since all the weights in a group are the same
+    }
   }
 
   public static DType getRapidsType(DataType type) {

@@ -74,4 +74,45 @@ class SparkParallelismTrackerSuite extends FunSuite with PerTest {
       }
     }
   }
+
+  test("tracker should not affect gpu execution result when timeout is not larger than 0") {
+    val nWorkers = 1
+    val rdd: RDD[Int] = sc.parallelize(1 to nWorkers, nWorkers)
+    val tracker = new SparkParallelismTracker(sc, 10000, nWorkers)
+    val disabledTracker = new SparkParallelismTracker(sc, 0, nWorkers)
+    assert(tracker.executeHonorForGpu(rdd.sum()) == rdd.sum())
+    assert(disabledTracker.executeHonorForGpu(rdd.sum()) == rdd.sum())
+  }
+
+  test("tracker should throw gpu exception if num worker is not sufficient") {
+    val nWorkers = 2
+    val rdd: RDD[Int] = sc.parallelize(1 to nWorkers)
+    val tracker = new SparkParallelismTracker(sc, 1000, nWorkers)
+    intercept[IllegalStateException] {
+      tracker.executeHonorForGpu {
+        rdd.map { i =>
+          // Test interruption
+          Thread.sleep(Long.MaxValue)
+          i
+        }.sum()
+      }
+    }
+  }
+
+  test("tracker should throw gpu exception if parallelism is not sufficient with" +
+    " spark.task.cpus larger than 1") {
+    sc.conf.set("spark.task.cpus", "2")
+    val nWorkers = 2
+    val rdd: RDD[Int] = sc.parallelize(1 to nWorkers)
+    val tracker = new SparkParallelismTracker(sc, 1000, nWorkers)
+    intercept[IllegalStateException] {
+      tracker.executeHonorForGpu {
+        rdd.map { i =>
+          // Test interruption
+          Thread.sleep(Long.MaxValue)
+          i
+        }.sum()
+      }
+    }
+  }
 }

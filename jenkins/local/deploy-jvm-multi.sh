@@ -26,15 +26,10 @@ REL_VERSION=`mvn exec:exec -q --non-recursive \
     -Dexec.args='${project.version}'`
 echo "XGBoost version = $REL_VERSION"
 
-SCALA_BIN_VERSION=`mvn exec:exec -q --non-recursive \
-    -Dexec.executable=echo \
-    -Dexec.args='${scala.binary.version}'`
-echo "scala binary version = $SCALA_BIN_VERSION"
-
 ###### Start deployment ######
 deploySubModule()
 {
-    FPATH="$OUT/$1/$1_$SCALA_BIN_VERSION-$REL_VERSION"
+    FPATH="$OUT/$1/$1_2.x-$REL_VERSION"
     if [ "$SIGN_FILE" == true ]; then
         SRC_DOC_JARS="-Dsources=$FPATH-sources.jar -Djavadoc=$FPATH-javadoc.jar"
     fi

@@ -142,6 +142,62 @@ class GpuDatasetSuite extends FunSuite with PerTest {
     assert(newset.partitions(2).files.contains(partFiles(0)))
   }
 
+  test("repartition when file split is disabled") {
+    assume(Cuda.isEnvCompatibleForTesting)
+    val csvSchema = "a DOUBLE, b DOUBLE, c DOUBLE, d DOUBLE, e DOUBLE"
+    val testDS = new GpuDataReader(ss).schema(csvSchema).csv(getTestDataPath("/test.csvsplit.csv"))
+    // Should throw exception when file split is disabled
+    // but asking for more partitions than number of files.
+    assertThrows[IllegalArgumentException] {
+      testDS.repartition(2, false)
+    }
+    // Works well when file split is enabled by default
+    val newPartitions = testDS.repartition(2).partitions
+    assertResult(2) {newPartitions.length}
+    assertResult(1) {newPartitions(0).files.length}
+    assertResult(true) {
+      newPartitions(1).files.head.start == newPartitions.head.files.head.length
+    }
+  }
+
+  test("loading csv file when file split is disabled") {
+    ss.conf.set("spark.sql.files.maxPartitionBytes", 25)
+    assume(Cuda.isEnvCompatibleForTesting)
+    val csvSchema = "a DOUBLE, b DOUBLE, c DOUBLE, d DOUBLE, e DOUBLE"
+    // File split is enabled by default
+    val testDS = new GpuDataReader(ss).schema(csvSchema)
+      .csv(getTestDataPath("/test.csv"), getTestDataPath("/test.csvsplit.csv"))
+    assertResult(4) { testDS.partitions.length }
+
+    // File split is disabled
+    ss.conf.set("spark.rapids.splitFile", false)
+    val testDS2 = new GpuDataReader(ss).schema(csvSchema)
+      .csv(getTestDataPath("/test.csv"), getTestDataPath("/test.csvsplit.csv"))
+    assertResult(2) { testDS2.partitions.length }
+    // Check the skew
+    val rdd = testDS2.mapColumnarBatchPerPartition((iter: Iterator[GpuColumnBatch]) => {
+      // for only one batch test
+      if (iter.hasNext) {
+        val b = iter.next()
+        (0 until b.getNumRows.toInt).map { idx =>
+          (0 until b.getNumColumns).map { pos =>
+            b.getIntInColumn(idx, pos, 0)
+          }
+        }.toIterator
+      } else {
+        Iterator.empty
+      }
+    })
+    val counts = rdd.collect
+    assertResult(2) { rdd.getNumPartitions }
+    assertResult(8) { counts.length }
+    val expectedData = Seq(
+      Seq(1, 2, 3, 4, 5), Seq(6, 7, 8, 9, 10), Seq(11, 12, 13, 14, 15), Seq(16, 17, 18, 19, 20),
+      Seq(1, 2, 3, 4, 5), Seq(6, 7, 8, 9, 10), Seq(11, 12, 13, 14, 15), Seq(16, 17, 18, 19, 20))
+    counts.zipWithIndex.foreach {
+      case (row, idx) => assert(row sameElements expectedData(idx))
+    }
+  }
 
   private def getTestDataPath(resource: String): String = {
     require(resource.startsWith("/"), "resource must start with /")

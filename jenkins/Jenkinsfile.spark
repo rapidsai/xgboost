@@ -2,6 +2,7 @@
 // -*- mode: groovy -*-
 // Jenkins pipeline
 // See documents at https://jenkins.io/doc/book/pipeline/jenkinsfile/
+@Library('shared-libs') _
 
 import groovy.transform.Field
 
@@ -52,13 +53,15 @@ pipeline {
         }
         stage('Jenkins: Build & Test') {
             steps {
-                script {
-                    echo 'run buildFactory'
-                    buildPlatformCmake("sparkgpu", buildMatrix[0], "docker-gpu", "sparkgpu")
-                    //buildMatrix.findAll{it['enabled']}.collectEntries{ c ->
-                    //    def buildName = "sparkgpu"
-                    //    utils.buildFactory(buildName, c, false, this.&buildPlatformCmake)
-                    //}
+                withMergedBranch {
+                    script {
+                        echo 'run buildFactory'
+                        buildPlatformCmake("sparkgpu", buildMatrix[0], "docker-gpu", "sparkgpu")
+                        //buildMatrix.findAll{it['enabled']}.collectEntries{ c ->
+                        //    def buildName = "sparkgpu"
+                        //    utils.buildFactory(buildName, c, false, this.&buildPlatformCmake)
+                        //}
+                    }
                 }
             }
         }

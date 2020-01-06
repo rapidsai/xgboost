@@ -171,11 +171,21 @@ private[spark] trait GeneralParams extends Params {
 
   final def getSeed: Long = $(seed)
 
+  /**
+    * Param for enabling/disabling edge groups integrity check in each partition for
+    * Learning To Rank.
+    * This is only used by GPU training pipeline.
+    */
+  final val checkGroupIntegrity = new BooleanParam(this, "checkGroupIntegrity",
+    "Whether to check the integrity of the group data in each partition")
+
+  final def getCheckGroupIntegrity: Boolean = $(checkGroupIntegrity)
+
   setDefault(numRound -> 1, numWorkers -> 1, nthread -> 1,
     useExternalMemory -> false, silent -> 0, verbosity -> 1,
     customObj -> null, customEval -> null, missing -> Float.NaN,
     trackerConf -> TrackerConf(), seed -> 0, timeoutRequestWorkers -> 30 * 60 * 1000L,
-    checkpointPath -> "", checkpointInterval -> -1)
+    checkpointPath -> "", checkpointInterval -> -1, checkGroupIntegrity -> true)
 }
 
 trait HasLeafPredictionCol extends Params {

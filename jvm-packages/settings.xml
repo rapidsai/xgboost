@@ -6,4 +6,16 @@
       <password>${env.SONATYPE_PASSWORD}</password>
     </server>
   </servers>
+  <profiles>
+    <profile>
+      <id>sonatype-stage</id>
+      <repositories>
+        <repository>
+          <id>sonatype-staging-repo</id>
+          <name>Sonatype staging repo</name>
+          <url>https://oss.sonatype.org/content/repositories/staging</url>
+        </repository>
+      </repositories>
+    </profile>
+  </profiles>
 </settings>

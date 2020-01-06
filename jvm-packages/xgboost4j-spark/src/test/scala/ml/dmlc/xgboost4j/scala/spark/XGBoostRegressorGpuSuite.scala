@@ -21,6 +21,7 @@ import ml.dmlc.xgboost4j.scala.{DMatrix, XGBoost => ScalaXGBoost}
 import org.apache.spark.ml.linalg.Vectors
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types.{DoubleType, IntegerType, StructType}
+import org.scalactic.TolerantNumerics
 import org.scalatest.FunSuite
 
 class XGBoostRegressorGpuSuite extends FunSuite with PerTest {
@@ -330,5 +331,109 @@ class XGBoostRegressorGpuSuite extends FunSuite with PerTest {
 
     val prediction = model.transform(testDF).collect()
     assert(testRowCount === prediction.length)
+  }
+
+  test("GPU Classifier test schema of XGBoostRegressionModel on parquet") {
+    val paramMap = Map(
+      "silent" -> 1,
+      "eta" -> 0.1f,
+      "max_depth" -> 3,
+      "objective" -> "reg:squarederror",
+      "num_round" -> 149,
+      "num_workers" -> 1,
+      "timeout_request_workers" -> 60000L)
+
+    val trainingDF = GpuDatasetData.getRegressionTrainGpuDatasetFromParquet(ss)
+    val testDF = GpuDatasetData.getRegressionTrainGpuDatasetFromParquet(ss)
+    val featureCols = GpuDatasetData.regressionFeatureCols
+
+    assert(testDF.schema.names.contains("A_NOT_USE"))
+    assert(testDF.schema.names.contains("B_NOT_USE"))
+    assert(testDF.schema.names.contains("C_NOT_USE"))
+    assert(testDF.schema.names.contains("D_NOT_USE"))
+    assert(testDF.schema.names.contains("line_index"))
+    assert(testDF.schema.names.contains("redundance"))
+    assert(testDF.schema.names.contains("b"))
+    assert(testDF.schema.names.contains("c"))
+    assert(testDF.schema.names.contains("d"))
+    assert(testDF.schema.names.contains("e"))
+    val model = new XGBoostClassifier(paramMap)
+      .setFeaturesCols(featureCols)
+      .setLabelCol("e")
+      .fit(trainingDF)
+
+    println(testDF.schema)
+    val predictionDF = model.transform(testDF)
+    assert(!predictionDF.columns.contains("A_NOT_USE"))
+    assert(!predictionDF.columns.contains("B_NOT_USE"))
+    assert(!predictionDF.columns.contains("C_NOT_USE"))
+    assert(!predictionDF.columns.contains("D_NOT_USE"))
+    assert(predictionDF.columns.contains("line_index"))
+    assert(predictionDF.columns.contains("redundance"))
+    assert(predictionDF.columns.contains("b"))
+    assert(predictionDF.columns.contains("c"))
+    assert(predictionDF.columns.contains("d"))
+    assert(predictionDF.columns.contains("e"))
+
+    val value = predictionDF.head(1)
+
+    assert(compareTwoFloats(value(0).getFloat(0), 1f))
+    assert(compareTwoFloats(value(0).getFloat(1), 985.574005058f))
+    assert(compareTwoFloats(value(0).getFloat(2), 320.223538037f))
+    assert(compareTwoFloats(value(0).getFloat(3), 0.621236086198f))
+    assert(compareTwoFloats(value(0).getFloat(4), 1f))
+    assert(compareTwoFloats(value(0).getFloat(5), 100f))
+  }
+
+  test("GPU Classifier test schema of XGBoostRegressionModel on orc") {
+    val paramMap = Map(
+      "silent" -> 1,
+      "eta" -> 0.1f,
+      "max_depth" -> 3,
+      "objective" -> "reg:squarederror",
+      "num_round" -> 149,
+      "num_workers" -> 1,
+      "timeout_request_workers" -> 60000L)
+
+    val trainingDF = GpuDatasetData.getRegressionTrainGpuDatasetFromOrc(ss)
+    val testDF = GpuDatasetData.getRegressionTrainGpuDatasetFromOrc(ss)
+    val featureCols = GpuDatasetData.regressionFeatureCols
+
+    assert(testDF.schema.names.contains("A_NOT_USE"))
+    assert(testDF.schema.names.contains("B_NOT_USE"))
+    assert(testDF.schema.names.contains("C_NOT_USE"))
+    assert(testDF.schema.names.contains("D_NOT_USE"))
+    assert(testDF.schema.names.contains("line_index"))
+    assert(testDF.schema.names.contains("redundance"))
+    assert(testDF.schema.names.contains("b"))
+    assert(testDF.schema.names.contains("c"))
+    assert(testDF.schema.names.contains("d"))
+    assert(testDF.schema.names.contains("e"))
+    val model = new XGBoostClassifier(paramMap)
+      .setFeaturesCols(featureCols)
+      .setLabelCol("e")
+      .fit(trainingDF)
+
+    println(testDF.schema)
+    val predictionDF = model.transform(testDF)
+    assert(!predictionDF.columns.contains("A_NOT_USE"))
+    assert(!predictionDF.columns.contains("B_NOT_USE"))
+    assert(!predictionDF.columns.contains("C_NOT_USE"))
+    assert(!predictionDF.columns.contains("D_NOT_USE"))
+    assert(predictionDF.columns.contains("line_index"))
+    assert(predictionDF.columns.contains("redundance"))
+    assert(predictionDF.columns.contains("b"))
+    assert(predictionDF.columns.contains("c"))
+    assert(predictionDF.columns.contains("d"))
+    assert(predictionDF.columns.contains("e"))
+
+    val value = predictionDF.head(1)
+
+    assert(compareTwoFloats(value(0).getFloat(0), 1f))
+    assert(compareTwoFloats(value(0).getFloat(1), 985.574005058f))
+    assert(compareTwoFloats(value(0).getFloat(2), 320.223538037f))
+    assert(compareTwoFloats(value(0).getFloat(3), 0.621236086198f))
+    assert(compareTwoFloats(value(0).getFloat(4), 1f))
+    assert(compareTwoFloats(value(0).getFloat(5), 100f))
   }
 }

@@ -1,5 +1,5 @@
 #!/usr/bin/groovy
-@Library('shared-libs') _
+//@Library('shared-libs') _
 
 // -*- mode: groovy -*-
 // Jenkins pipeline
@@ -74,4 +74,17 @@ pipeline {
             }
         }
     }
+}
+
+void slack(Map params = [:], String channel, String message) {
+    Map defaultParams = [
+            color: "#000000",
+            baseUrl: "https://nvidia.slack.com/services/hooks/jenkins-ci/",
+            tokenCredentialId: "slack_token"
+    ]
+
+    params["channel"] = channel
+    params["message"] = "${BUILD_URL}\n" + message
+
+    slackSend(defaultParams << params)
 }

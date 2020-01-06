@@ -359,6 +359,14 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_RabitVersionNumber
 JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_RabitAllreduce
   (JNIEnv *, jclass, jobject, jint, jint, jint);
 
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    RabitBroadcast
+ * Signature: (Ljava/nio/ByteBuffer;JI)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_RabitBroadcast
+  (JNIEnv *, jclass, jobject, jlong, jint);
+
 #ifdef __cplusplus
 }
 #endif

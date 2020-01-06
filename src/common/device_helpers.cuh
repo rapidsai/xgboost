@@ -30,6 +30,27 @@
 #include "../common/io.h"
 #endif
 
+#if !defined(__CUDA_ARCH__) || __CUDA_ARCH__ >= 600
+
+#else  // In device code and CUDA < 600
+XGBOOST_DEVICE __forceinline__ double atomicAdd(double* address, double val) {
+  unsigned long long int* address_as_ull =
+      (unsigned long long int*)address;                   // NOLINT
+  unsigned long long int old = *address_as_ull, assumed;  // NOLINT
+
+  do {
+    assumed = old;
+    old = atomicCAS(address_as_ull, assumed,
+                    __double_as_longlong(val + __longlong_as_double(assumed)));
+
+    // Note: uses integer comparison to avoid hang in case of NaN (since NaN !=
+    // NaN)
+  } while (assumed != old);
+
+  return __longlong_as_double(old);
+}
+#endif
+
 namespace dh {
 
 #define HOST_DEV_INLINE XGBOOST_DEVICE __forceinline__
@@ -128,30 +149,93 @@ DEV_INLINE void AtomicOrByte(unsigned int* __restrict__ buffer, size_t ibyte, un
   atomicOr(&buffer[ibyte / sizeof(unsigned int)], (unsigned int)b << (ibyte % (sizeof(unsigned int)) * 8));
 }
 
-/*!
- * \brief Find the strict upper bound for an element in a sorted array
- *  using binary search.
- * \param cuts pointer to the first element of the sorted array
- * \param n length of the sorted array
- * \param v value for which to find the upper bound
- * \return the smallest index i such that v < cuts[i], or n if v is greater or equal
- *  than all elements of the array
-*/
-DEV_INLINE int UpperBound(const float* __restrict__ cuts, int n, float v) {
-  if (n == 0)           { return 0; }
-  if (cuts[n - 1] <= v) { return n; }
-  if (cuts[0] > v)      { return 0; }
+namespace internal {
 
-  int left = 0, right = n - 1;
-  while (right - left > 1) {
-    int middle = left + (right - left) / 2;
-    if (cuts[middle] > v) {
-      right = middle;
+// Items of size 'n' are sorted in an order determined by the Comparator
+// If left is true, find the number of elements where 'comp(item, v)' returns true;
+// 0 if nothing is true
+// If left is false, find the number of elements where '!comp(item, v)' returns true;
+// 0 if nothing is true
+template <typename T, typename Comparator = thrust::greater<T>>
+XGBOOST_DEVICE __forceinline__ uint32_t
+CountNumItemsImpl(bool left, const T * __restrict__ items, uint32_t n, T v,
+                  const Comparator &comp = Comparator()) {
+  const T *items_begin = items;
+  uint32_t num_remaining = n;
+  const T *middle_item = nullptr;
+  uint32_t middle;
+  while (num_remaining > 0) {
+    middle_item = items_begin;
+    middle = num_remaining / 2;
+    middle_item += middle;
+    if ((left && comp(*middle_item, v)) || (!left && !comp(v, *middle_item))) {
+      items_begin = ++middle_item;
+      num_remaining -= middle + 1;
     } else {
-      left = middle;
+      num_remaining = middle;
     }
   }
-  return right;
+
+  return left ? items_begin - items : items + n - items_begin;
+}
+
+}
+
+/*!
+ * \brief Find the strict upper bound for an element in a sorted array
+ *        using binary search.
+ * \param items pointer to the first element of the sorted array
+ * \param n length of the sorted array
+ * \param v value for which to find the upper bound
+ * \param comp determines how the items are sorted ascending/descending order - should conform
+ *        to ordering semantics
+ * \return the smallest index i that has a value > v, or n if none is larger when sorted ascendingly
+ *         or, an index i with a value < v, or 0 if none is smaller when sorted descendingly
+*/
+// Preserve existing default behavior of upper bound
+template <typename T, typename Comp = thrust::less<T>>
+XGBOOST_DEVICE __forceinline__ uint32_t UpperBound(const T *__restrict__ items,
+                                                   uint32_t n,
+                                                   T v,
+                                                   const Comp &comp = Comp()) {
+  if (std::is_same<Comp, thrust::less<T>>::value ||
+      std::is_same<Comp, thrust::greater<T>>::value) {
+    return n - internal::CountNumItemsImpl(false, items, n, v, comp);
+  } else {
+    static_assert(std::is_same<Comp, thrust::less<T>>::value ||
+                  std::is_same<Comp, thrust::greater<T>>::value,
+                  "Invalid comparator used in Upperbound - can only be thrust::greater/less");
+    return std::numeric_limits<uint32_t>::max(); // Simply to quiesce the compiler
+  }
+}
+
+/*!
+ * \brief Find the strict lower bound for an element in a sorted array
+ *        using binary search.
+ * \param items pointer to the first element of the sorted array
+ * \param n length of the sorted array
+ * \param v value for which to find the upper bound
+ * \param comp determines how the items are sorted ascending/descending order - should conform
+ *        to ordering semantics
+ * \return the smallest index i that has a value >= v, or n if none is larger
+ *         when sorted ascendingly
+ *         or, an index i with a value <= v, or 0 if none is smaller when sorted descendingly
+*/
+// Preserve existing default behavior of upper bound
+template <typename T, typename Comp = thrust::less<T>>
+XGBOOST_DEVICE __forceinline__ uint32_t LowerBound(const T *__restrict__ items,
+                                                   uint32_t n,
+                                                   T v,
+                                                   const Comp &comp = Comp()) {
+  if (std::is_same<Comp, thrust::less<T>>::value ||
+      std::is_same<Comp, thrust::greater<T>>::value) {
+    return internal::CountNumItemsImpl(true, items, n, v, comp);
+  } else {
+    static_assert(std::is_same<Comp, thrust::less<T>>::value ||
+                  std::is_same<Comp, thrust::greater<T>>::value,
+                  "Invalid comparator used in LowerBound - can only be thrust::greater/less");
+    return std::numeric_limits<uint32_t>::max(); // Simply to quiesce the compiler
+  }
 }
 
 template <typename T>
@@ -243,7 +327,6 @@ class MemoryLogger {
       }
       num_deallocations++;
       CHECK_LE(num_deallocations, num_allocations);
-      CHECK_EQ(itr->second, n);
       currently_allocated_bytes -= itr->second;
       device_allocations.erase(itr);
     }
@@ -260,7 +343,6 @@ public:
     int current_device;
     safe_cuda(cudaGetDevice(&current_device));
     stats_[current_device].RegisterAllocation(ptr, n);
-    CHECK_LE(stats_[current_device].peak_allocated_bytes, dh::TotalMemory(current_device));
   }
   void RegisterDeallocation(void *ptr, size_t n) {
     if (!xgboost::ConsoleLogger::ShouldLog(xgboost::ConsoleLogger::LV::kDebug))
@@ -278,7 +360,7 @@ public:
       LOG(CONSOLE) << "======== Device " << kv.first << " Memory Allocations: "
         << " ========";
       LOG(CONSOLE) << "Peak memory usage: "
-        << kv.second.peak_allocated_bytes / 1048576 << "mb";
+        << kv.second.peak_allocated_bytes / 1048576 << "MiB";
       LOG(CONSOLE) << "Number of allocations: " << kv.second.num_allocations;
     }
   }
@@ -1039,7 +1121,7 @@ class AllReducer {
     if (xgboost::ConsoleLogger::ShouldLog(xgboost::ConsoleLogger::LV::kDebug)) {
       LOG(CONSOLE) << "======== NCCL Statistics========";
       LOG(CONSOLE) << "AllReduce calls: " << allreduce_calls_;
-      LOG(CONSOLE) << "AllReduce total MB communicated: " << allreduce_bytes_/1000000;
+      LOG(CONSOLE) << "AllReduce total MB communicated: " << allreduce_bytes_/1048576;
     }
 #endif
   }
@@ -1364,5 +1446,17 @@ public:
     return *offset;
   }
 };
+
+// Atomic add function for gradients
+template <typename OutputGradientT, typename InputGradientT>
+DEV_INLINE void AtomicAddGpair(OutputGradientT* dest,
+                               const InputGradientT& gpair) {
+  auto dst_ptr = reinterpret_cast<typename OutputGradientT::ValueT*>(dest);
+
+  atomicAdd(dst_ptr,
+            static_cast<typename OutputGradientT::ValueT>(gpair.GetGrad()));
+  atomicAdd(dst_ptr + 1,
+            static_cast<typename OutputGradientT::ValueT>(gpair.GetHess()));
+}
 
 }  // namespace dh

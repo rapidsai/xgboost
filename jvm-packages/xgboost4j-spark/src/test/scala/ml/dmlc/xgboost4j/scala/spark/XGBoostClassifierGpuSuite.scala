@@ -21,6 +21,7 @@ import ml.dmlc.xgboost4j.scala.{DMatrix, XGBoost => ScalaXGBoost}
 import org.apache.spark.ml.linalg.{DenseVector, Vectors}
 import org.apache.spark.sql.Row
 import org.apache.spark.sql.types.{FloatType, IntegerType, StructType}
+import org.scalactic.TolerantNumerics
 import org.scalatest.FunSuite
 
 class XGBoostClassifierGpuSuite extends FunSuite with PerTest {
@@ -267,7 +268,7 @@ class XGBoostClassifierGpuSuite extends FunSuite with PerTest {
       .setProbabilityCol("probability_prediction")
       .setPredictionCol("final_prediction")
     var predictionDF = model.transform(testDF)
-    assert(predictionDF.columns.contains("sepal length"))
+    assert(predictionDF.columns.contains("sepal_length"))
     assert(predictionDF.columns.contains("classIndex"))
     assert(predictionDF.columns.contains("raw_prediction"))
     assert(predictionDF.columns.contains("probability_prediction"))
@@ -406,5 +407,115 @@ class XGBoostClassifierGpuSuite extends FunSuite with PerTest {
     assert(resultDF.count == groundTruth)
     assert(resultDF.columns.contains("predictLeaf"))
     assert(resultDF.columns.contains("predictContrib"))
+  }
+
+  test("GPU Classifier test schema of XGBoostClassificationModel on parquet") {
+    val paramMap = Map("eta" -> 0.1f,
+      "max_depth" -> 2,
+      "objective" -> "multi:softprob",
+      "num_class" -> 3,
+      "num_round" -> 100,
+      "num_workers" -> 1,
+      "tree_method" -> "gpu_hist",
+      "max_bin" -> 16)
+
+    val trainingDF = GpuDatasetData.getClassifierTrainGpuDatasetFromParquet(ss)
+    val testDF = GpuDatasetData.getClassifierTrainGpuDatasetFromParquet(ss)
+    val featureCols = GpuDatasetData.classifierFeatureCols
+
+    assert(testDF.schema.names.contains("A_NOT_USE"))
+    assert(testDF.schema.names.contains("B_NOT_USE"))
+    assert(testDF.schema.names.contains("C_NOT_USE"))
+    assert(testDF.schema.names.contains("D_NOT_USE"))
+    assert(testDF.schema.names.contains("line_index"))
+    assert(testDF.schema.names.contains("redundance"))
+    assert(testDF.schema.names.contains("sepal_length"))
+    assert(testDF.schema.names.contains("sepal_width"))
+    assert(testDF.schema.names.contains("petal_length"))
+    assert(testDF.schema.names.contains("petal_width"))
+    assert(testDF.schema.names.contains("classIndex"))
+    val model = new XGBoostClassifier(paramMap)
+      .setFeaturesCols(featureCols)
+      .setLabelCol("classIndex")
+      .fit(trainingDF)
+
+    println(testDF.schema)
+    val predictionDF = model.transform(testDF)
+    assert(!predictionDF.columns.contains("A_NOT_USE"))
+    assert(!predictionDF.columns.contains("B_NOT_USE"))
+    assert(!predictionDF.columns.contains("C_NOT_USE"))
+    assert(!predictionDF.columns.contains("D_NOT_USE"))
+    assert(predictionDF.columns.contains("line_index"))
+    assert(predictionDF.columns.contains("redundance"))
+    assert(predictionDF.columns.contains("sepal_length"))
+    assert(predictionDF.columns.contains("sepal_width"))
+    assert(predictionDF.columns.contains("petal_length"))
+    assert(predictionDF.columns.contains("petal_width"))
+    assert(predictionDF.columns.contains("classIndex"))
+
+    val value = predictionDF.head(1)
+
+    assert(compareTwoFloats(value(0).getFloat(0), 1f))
+    assert(compareTwoFloats(value(0).getFloat(1), 5.1f))
+    assert(compareTwoFloats(value(0).getFloat(2), 3.5f))
+    assert(compareTwoFloats(value(0).getFloat(3), 1.4f))
+    assert(compareTwoFloats(value(0).getFloat(4), 0.2f))
+    assert(compareTwoFloats(value(0).getFloat(5), 0.0f))
+    assert(compareTwoFloats(value(0).getFloat(6), 100f))
+  }
+
+  test("GPU Classifier test schema of XGBoostClassificationModel on orc") {
+    val paramMap = Map("eta" -> 0.1f,
+      "max_depth" -> 2,
+      "objective" -> "multi:softprob",
+      "num_class" -> 3,
+      "num_round" -> 100,
+      "num_workers" -> 1,
+      "tree_method" -> "gpu_hist",
+      "max_bin" -> 16)
+
+    val trainingDF = GpuDatasetData.getClassifierTrainGpuDatasetFromOrc(ss)
+    val testDF = GpuDatasetData.getClassifierTrainGpuDatasetFromOrc(ss)
+    val featureCols = GpuDatasetData.classifierFeatureCols
+
+    assert(testDF.schema.names.contains("A_NOT_USE"))
+    assert(testDF.schema.names.contains("B_NOT_USE"))
+    assert(testDF.schema.names.contains("C_NOT_USE"))
+    assert(testDF.schema.names.contains("D_NOT_USE"))
+    assert(testDF.schema.names.contains("line_index"))
+    assert(testDF.schema.names.contains("redundance"))
+    assert(testDF.schema.names.contains("sepal_length"))
+    assert(testDF.schema.names.contains("sepal_width"))
+    assert(testDF.schema.names.contains("petal_length"))
+    assert(testDF.schema.names.contains("petal_width"))
+    assert(testDF.schema.names.contains("classIndex"))
+    val model = new XGBoostClassifier(paramMap)
+      .setFeaturesCols(featureCols)
+      .setLabelCol("classIndex")
+      .fit(trainingDF)
+
+    println(testDF.schema)
+    val predictionDF = model.transform(testDF)
+    assert(!predictionDF.columns.contains("A_NOT_USE"))
+    assert(!predictionDF.columns.contains("B_NOT_USE"))
+    assert(!predictionDF.columns.contains("C_NOT_USE"))
+    assert(!predictionDF.columns.contains("D_NOT_USE"))
+    assert(predictionDF.columns.contains("line_index"))
+    assert(predictionDF.columns.contains("redundance"))
+    assert(predictionDF.columns.contains("sepal_length"))
+    assert(predictionDF.columns.contains("sepal_width"))
+    assert(predictionDF.columns.contains("petal_length"))
+    assert(predictionDF.columns.contains("petal_width"))
+    assert(predictionDF.columns.contains("classIndex"))
+
+    val value = predictionDF.head(1)
+
+    assert(compareTwoFloats(value(0).getFloat(0), 1f))
+    assert(compareTwoFloats(value(0).getFloat(1), 5.1f))
+    assert(compareTwoFloats(value(0).getFloat(2), 3.5f))
+    assert(compareTwoFloats(value(0).getFloat(3), 1.4f))
+    assert(compareTwoFloats(value(0).getFloat(4), 0.2f))
+    assert(compareTwoFloats(value(0).getFloat(5), 0.0f))
+    assert(compareTwoFloats(value(0).getFloat(6), 100f))
   }
 }

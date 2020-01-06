@@ -23,7 +23,7 @@ import scala.collection.JavaConverters._
 import ml.dmlc.xgboost4j.java.{Rabit, XGBoostSparkJNI}
 import ml.dmlc.xgboost4j.{LabeledPoint => XGBLabeledPoint}
 import ml.dmlc.xgboost4j.scala.spark.params.{DefaultXGBoostParamsReader, _}
-import ml.dmlc.xgboost4j.scala.spark.rapids.{ColumnBatchToRow, GpuDataset}
+import ml.dmlc.xgboost4j.scala.spark.rapids.{ColumnBatchToRow, GpuDataset, RowConverter}
 import ml.dmlc.xgboost4j.scala.{Booster, DMatrix, XGBoost => SXGBoost}
 import ml.dmlc.xgboost4j.scala.{EvalTrait, ObjectiveTrait}
 import org.apache.commons.logging.LogFactory
@@ -291,7 +291,13 @@ class XGBoostRegressionModel private[ml] (
   }
 
   private def transformInternal(dataset: GpuDataset): DataFrame = {
-    val schema = StructType(dataset.schema.fields ++
+    val rawSchema = dataset.schema
+
+    // dataReadSchema filters out some fields that RowConverter is not supporting
+    val dataReadSchema = StructType(rawSchema.fields.filter(x =>
+      RowConverter.isSupportingType(x.dataType)))
+
+    val schema = StructType(dataReadSchema.fields ++
       Seq(StructField(name = _originalPredictionCol, dataType =
         ArrayType(FloatType, containsNull = false), nullable = false)))
 
@@ -299,19 +305,20 @@ class XGBoostRegressionModel private[ml] (
     val appName = dataset.sparkSession.sparkContext.appName
 
     val derivedXGBParamMap = MLlib2XGBoostParams
-    var featuresColNames = derivedXGBParamMap.getOrElse("features_cols", Nil)
+    val featuresColNames = derivedXGBParamMap.getOrElse("features_cols", Nil)
       .asInstanceOf[Seq[String]]
 
     val indices = Seq(featuresColNames.toArray).map(
-      _.filter(schema.fieldNames.contains).map(schema.fieldIndex)
+      _.filter(rawSchema.fieldNames.contains).map(rawSchema.fieldIndex)
     )
 
     require(indices(0).length == featuresColNames.length,
       "Features column(s) in schema do NOT match the one(s) in parameters. " +
         s"Expect [${featuresColNames.mkString(", ")}], " +
-        s"but found [${indices(0).map(schema.fieldNames).mkString(", ")}]!")
+        s"but found [${indices(0).map(rawSchema.fieldNames).mkString(", ")}]!")
 
     val missing = getMissingValue
+
     val resultRDD = dataset.mapColumnarBatchPerPartition((iter: Iterator[GpuColumnBatch]) => {
       // call allocateGpuDevice to force assignment of GPU when in exclusive process mode
       // and pass that as the gpu_id, assumption is that if you are using CUDA_VISIBLE_DEVICES

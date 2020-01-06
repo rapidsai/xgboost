@@ -56,6 +56,21 @@ private[xgboost4j] object RowConverter {
     }
   }
 
+  def isSupportingType(dataType: DataType): Boolean = {
+    dataType match {
+      case BooleanType => true
+      case ByteType => true
+      case ShortType => true
+      case IntegerType => true
+      case FloatType => true
+      case LongType => true
+      case DoubleType => true
+      case DateType => true
+      case TimestampType => true
+      case _ => false
+    }
+  }
+
   private def getConverterForType(dataType: DataType): TypeConverter = {
     dataType match {
       case BooleanType => BooleanConverter

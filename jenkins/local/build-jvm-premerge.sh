@@ -16,5 +16,5 @@ BUILD_ARG="-Dmaven.repo.local=$WORKSPACE/.m2 -Dcudf.classifier=cuda10"
 cd jvm-packages
 . /opt/tools/to_cuda10.0.sh
 rm -rf ../build
-mvn $BUILD_ARG clean package
+mvn -B $BUILD_ARG clean package
 cd ..

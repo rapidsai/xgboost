@@ -111,4 +111,9 @@ trait PerTest extends BeforeAndAfterEach { self: FunSuite =>
   protected def getPath(resName: String): String = {
     getClass.getResource("/" + resName).getPath
   }
+
+
+  protected def compareTwoFloats(p1: Float, p2: Float): Boolean = {
+    math.abs(p1 - p2) <= 0.000001f
+  }
 }

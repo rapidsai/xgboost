@@ -5,10 +5,10 @@
     <modelVersion>4.0.0</modelVersion>
     <parent>
         <groupId>ai.rapids</groupId>
-        <artifactId>xgboost-jvm_2.11</artifactId>
-        <version>1.0.0-Beta2</version>
+        <artifactId>xgboost-jvm_2.x</artifactId>
+        <version>1.0.0-Beta4</version>
     </parent>
-    <artifactId>xgboost4j-spark_2.11</artifactId>
+    <artifactId>xgboost4j-spark_2.x</artifactId>
     <build>
         <plugins>
             <plugin>
@@ -41,12 +41,24 @@
                                     <include>org.apache.orc:orc-core:nohive</include>
                                     <include>org.apache.orc:orc-shims</include>
                                     <include>org.apache.orc:orc-mapreduce</include>
+                                    <include>org.apache.parquet:parquet-hadoop</include>
+                                    <include>org.apache.parquet:parquet-column</include>
+                                    <include>org.apache.parquet:parquet-common</include>
+                                    <include>org.apache.parquet:parquet-format</include>
                                 </includes>
                             </artifactSet>
                             <relocations>
                                 <relocation>
                                     <pattern>org.apache.orc</pattern>
                                     <shadedPattern>org.shaded.apache.orc</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>org.apache.parquet</pattern>
+                                    <shadedPattern>org.shaded.apache.parquet</shadedPattern>
+                                </relocation>
+                                <relocation>
+                                    <pattern>shaded.parquet.org.apache.thrift</pattern>
+                                    <shadedPattern>org.shaded.apache.thrift</shadedPattern>
                                 </relocation>
                             </relocations>
                         </configuration>
@@ -58,8 +70,8 @@
     <dependencies>
         <dependency>
             <groupId>ai.rapids</groupId>
-            <artifactId>xgboost4j_${scala.binary.version}</artifactId>
-            <version>1.0.0-Beta2</version>
+            <artifactId>xgboost4j_2.x</artifactId>
+            <version>1.0.0-Beta4</version>
         </dependency>
         <dependency>
             <groupId>org.apache.spark</groupId>
@@ -78,6 +90,22 @@
                 <exclusion>
                     <groupId>org.apache.orc</groupId>
                     <artifactId>orc-mapreduce</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.parquet</groupId>
+                    <artifactId>parquet-hadoop</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.parquet</groupId>
+                    <artifactId>parquet-column</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.parquet</groupId>
+                    <artifactId>parquet-common</artifactId>
+                </exclusion>
+                <exclusion>
+                    <groupId>org.apache.parquet</groupId>
+                    <artifactId>parquet-format</artifactId>
                 </exclusion>
             </exclusions>
         </dependency>
@@ -149,6 +177,26 @@
             <groupId>com.esotericsoftware</groupId>
             <artifactId>kryo-shaded</artifactId>
             <version>4.0.2</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-hadoop</artifactId>
+            <version>1.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-column</artifactId>
+            <version>1.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-common</artifactId>
+            <version>1.10.1</version>
+        </dependency>
+        <dependency>
+            <groupId>org.apache.parquet</groupId>
+            <artifactId>parquet-format</artifactId>
+            <version>2.4.0</version>
         </dependency>
     </dependencies>
 </project>

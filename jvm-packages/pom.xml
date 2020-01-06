@@ -5,8 +5,8 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>ai.rapids</groupId>
-    <artifactId>xgboost-jvm_2.11</artifactId>
-    <version>1.0.0-Beta2</version>
+    <artifactId>xgboost-jvm_2.x</artifactId>
+    <version>1.0.0-Beta4</version>
     <packaging>pom</packaging>
     <name>XGBoost JVM Package</name>
     <description>JVM Package for XGBoost</description>
@@ -37,7 +37,7 @@
         <spark.version>2.4.3</spark.version>
         <scala.version>2.11.12</scala.version>
         <scala.binary.version>2.11</scala.binary.version>
-        <cudf.version>0.9.1</cudf.version>
+        <cudf.version>0.9.2</cudf.version>
         <cudf.classifier>cuda10</cudf.classifier>
     </properties>
     <repositories>
@@ -57,14 +57,6 @@
             <properties>
                 <cudf.classifier></cudf.classifier>
             </properties>
-        </profile>
-        <profile>
-            <id>local-repo</id>
-            <activation>
-                <property>
-                    <name>!release-build</name>
-                </property>
-            </activation>
         </profile>
         <profile>
             <id>release</id>

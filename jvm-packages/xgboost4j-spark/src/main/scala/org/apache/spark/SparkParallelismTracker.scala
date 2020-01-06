@@ -66,6 +66,32 @@ class SparkParallelismTracker(
     }
   }
 
+  private[this] def numAliveWorkers: Int = {
+    try {
+      if (url != null) {
+        // Regular expression used for local[N] and local[*] master formats
+        val LOCAL_N_REGEX = """local\[([0-9]+|\*)\]""".r
+        // Regular expression for local[N, maxRetries], used in tests with failing tasks
+        val LOCAL_N_FAILURES_REGEX = """local\[([0-9]+|\*)\s*,\s*([0-9]+)\]""".r
+        sc.master match {
+          case "local" | LOCAL_N_REGEX(_) | LOCAL_N_FAILURES_REGEX(_, _) =>
+            mapper.readTree(url).findValues("id").asScala.map(_.asText).size
+          case _ =>
+            mapper.readTree(url).findValues("id").asScala.map(_.asText)
+              .filter(_ != "driver").size
+        }
+      } else {
+        Int.MaxValue
+      }
+    } catch {
+      case ex: Throwable =>
+        logger.warn(s"Unable to read total number of alive worker from REST API." +
+          s"Health Check will be ignored.")
+        ex.printStackTrace()
+        Int.MaxValue
+    }
+  }
+
   private[this] def waitForCondition(
       condition: => Boolean,
       timeout: Long,
@@ -109,6 +135,33 @@ class SparkParallelismTracker(
         case _: TimeoutException =>
           throw new IllegalStateException(s"Unable to get $requestedCores workers for" +
             s" XGBoost training")
+      }
+      safeExecute(body)
+    }
+  }
+
+  /**
+   * Execute a blocking function call with two checks on enough nWorkers:
+   *  - Before the function starts, wait until there are enough executors.
+   *  - During the execution, throws an exception if there is any executor lost.
+   *
+   * @param body A blocking function call
+   * @tparam T Return type
+   * @return The return of body
+   */
+  def executeHonorForGpu[T](body: => T): T = {
+    if (timeout <= 0) {
+      logger.info("starting GPU training without setting timeout for waiting for resources")
+      body
+    } else {
+      try {
+        logger.info(s"starting GPU training with timeout set as $timeout ms" +
+          s"for waiting for resources")
+        waitForCondition(numAliveCores >= requestedCores && numAliveWorkers >= numWorkers, timeout)
+      } catch {
+        case _: TimeoutException =>
+          throw new IllegalStateException(s"Unable to get $numWorkers workers for" +
+            s" XGBoost GPU training")
       }
       safeExecute(body)
     }

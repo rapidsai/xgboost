@@ -62,7 +62,8 @@ object CSVPartitionReader {
     "header" -> parseCSVHeaderOption,
     "nullValue" -> parseCSVNullValueOption,
     "quote" -> parseCSVQuoteOption,
-    "sep" -> parseCSVSepOption
+    "sep" -> parseCSVSepOption,
+    "delimiter" -> parseCSVSepOption
   )
 
   private def parseCSVCommentOption(b: CudfCSVOptions.Builder, v: String): Unit = {

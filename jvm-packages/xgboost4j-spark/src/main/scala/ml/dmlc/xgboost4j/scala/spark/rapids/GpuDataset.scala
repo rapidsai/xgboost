@@ -19,7 +19,7 @@ package ml.dmlc.xgboost4j.scala.spark.rapids
 import java.util.Locale
 import java.nio.charset.StandardCharsets
 
-import ai.rapids.cudf.{DType, Table}
+import ai.rapids.cudf.{DType, Table, TimeUnit}
 import ml.dmlc.xgboost4j.java.XGBoostSparkJNI
 import ml.dmlc.xgboost4j.java.spark.rapids.{GpuColumnBatch, PartitionReaderFactory}
 import org.apache.commons.logging.LogFactory
@@ -112,7 +112,9 @@ class GpuDataset(fsRelation: HadoopFsRelation,
   }
 
   /** Return a new GpuDataset that has exactly numPartitions partitions. */
-  def repartition(numPartitions: Int): GpuDataset = {
+  def repartition(numPartitions: Int): GpuDataset = repartition(numPartitions, true)
+
+  def repartition(numPartitions: Int, splitFile: Boolean): GpuDataset = {
     if (numPartitions == partitions.length) {
       return new GpuDataset(fsRelation, sourceType, sourceOptions, castAllToFloats,
         maxRowsPerChunk, Some(partitions))
@@ -122,6 +124,10 @@ class GpuDataset(fsRelation: HadoopFsRelation,
     var files = partitions.flatMap(fp => GpuDataset.getFiles(fp))
     var permitNumPartitions = numPartitions
     files = if (files.length < numPartitions) {
+      if (!splitFile) {
+        throw new IllegalArgumentException("Requiring more partitions than the number of files" +
+        " is NOT supported when file split is disabled for some cases, such as LTR!")
+      }
       val totalSize = files.map(_.length).sum
       var newPartitionSize = totalSize / numPartitions
       if (newPartitionSize < 1) {
@@ -242,6 +248,9 @@ class GpuDataset(fsRelation: HadoopFsRelation,
   private def getSplits(
       partitions: Seq[PartitionDirectory],
       maxSplitBytes: Long): Seq[PartitionedFile] = {
+    val confSplitFile = fsRelation.sparkSession.conf
+      .get("spark.rapids.splitFile", "true").toBoolean
+    logger.info(s"Config 'spark.rapids.splitFile' is set to $confSplitFile")
     partitions.flatMap { partitionDir =>
       if (partitionDir.files.nonEmpty) {
         // Should be a Hadoop FileStatus, but we have seen people overload this
@@ -253,7 +262,7 @@ class GpuDataset(fsRelation: HadoopFsRelation,
             val filePath = file.getPath
             val isSplitable = fsRelation.fileFormat.isSplitable(
               fsRelation.sparkSession, fsRelation.options, filePath) &&
-              fileTypeSupportSplit(sourceType)
+              fileTypeSupportSplit(sourceType) && confSplitFile
             splitFile(
               file = file,
               filePath = filePath,
@@ -377,7 +386,24 @@ class GpuDataset(fsRelation: HadoopFsRelation,
         val remaining = file.getLen - offset
         val size = if (remaining > maxSplitBytes) maxSplitBytes else remaining
         val hosts = getBlockHosts(getBlockLocations(file), offset, size)
-        PartitionedFile(partitionValues, filePath.toUri.toString, offset, size, hosts)
+        try{
+          PartitionedFile(partitionValues, filePath.toUri.toString, offset, size, hosts)
+        } catch {
+          case e: NoSuchMethodError =>
+            logger.debug("PartitionedFile, normal Apache Spark version failed.")
+            // assume this is the EMR 5.28 version
+            // scalastyle:off classforname
+            val clzFileData = Class.forName("org.apache.spark.sql.execution.datasources.FileData")
+            // scalastyle:on classforname
+            val pfClass = org.apache.spark.sql.execution.datasources.PartitionedFile.getClass.
+              getMethod("apply", classOf[org.apache.spark.sql.catalyst.InternalRow],
+                classOf[String], classOf[Long], classOf[Long], classOf[Array[String]],
+                clzFileData)
+            pfClass.invoke(org.apache.spark.sql.execution.datasources.PartitionedFile,
+              partitionValues, filePath.toUri.toString, java.lang.Long.valueOf(offset),
+              java.lang.Long.valueOf(size), hosts, null).
+              asInstanceOf[PartitionedFile]
+        }
       }
     } else {
       Seq(getPartitionedFile(file, filePath, partitionValues))
@@ -695,14 +721,22 @@ class ColumnBatchToRow() {
     iter
   }
 
+  // features: indices(0) label: indices(1), label may not exist
   class ColumnBatchIter(batch: GpuColumnBatch) extends Iterator[Row] with AutoCloseable {
+    val rawSchema = batch.getSchema
+    val schema = StructType(rawSchema.fields.filter(x =>
+      RowConverter.isSupportingType(x.dataType)))
+
+    // schema name maps to index of schema
+    val nameToIndex = schema.fieldNames.map(rawSchema.fieldIndex)
+
+    val nativeColumnPtrs = nameToIndex.map(batch.getColumn)
+    val timeUnits = nameToIndex.map(batch.getColumnVector(_).getTimeUnit)
+
     private val numRows = batch.getNumRows
-    private val schema = batch.getSchema
-    private val timeUnits =
-      (0 until batch.getNumColumns).map(batch.getColumnVector(_).getTimeUnit)
     private val converter = new RowConverter(schema, timeUnits)
-    private val rowSize = UnsafeRow.calculateBitSetWidthInBytes(batch.getNumColumns) +
-      batch.getNumColumns * 8
+    private val rowSize = UnsafeRow.calculateBitSetWidthInBytes(schema.length) +
+      schema.length * 8
     private var buffer: Long = initBuffer()
     private var nextRow = 0
     private val row = new UnsafeRow(schema.length)
@@ -726,10 +760,6 @@ class ColumnBatchToRow() {
     }
 
     private def initBuffer(): Long = {
-      val nativeColumnPtrs = new Array[Long](batch.getNumColumns)
-      for (i <- 0 until batch.getNumColumns) {
-        nativeColumnPtrs(i) = batch.getColumn(i)
-      }
       XGBoostSparkJNI.buildUnsafeRows(nativeColumnPtrs)
     }
   }

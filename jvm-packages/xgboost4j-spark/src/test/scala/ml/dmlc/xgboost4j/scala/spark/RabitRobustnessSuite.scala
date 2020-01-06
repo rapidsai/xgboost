@@ -226,4 +226,44 @@ class RabitRobustnessSuite extends FunSuite with PerTest {
     // expecting no error
     prediction.collect()
   }
+
+  test("test Rabit broadcast to validate Scala-implemented Rabit tracker") {
+    // Each partition has only one row with one element '2'
+    val rdd = sc.parallelize((1 to numWorkers).map(_ => 2), numWorkers).cache()
+    val tracker = new ScalaRabitTracker(numWorkers)
+    tracker.start(0)
+    val trackerEnvs = tracker.getWorkerEnvs
+
+    // Expected data Array(3, 3, 3, ...)
+    val expectedResults = rdd.mapPartitions { iter =>
+      // Expected data is 2 + 1 = 3 in each partition
+      Iterator.single(iter.next + 1)
+    }.collect
+
+    val broadcastResults = rdd.mapPartitions { iter =>
+      Rabit.init(trackerEnvs)
+      // Change the data only in Rabit with (rank == 0) and broadcast the new value (2 + 1)
+      // Other keep unchanged (2)
+      val newVal = if (Rabit.getRank == 0) iter.next + 1 else iter.next
+      // After broadcast, all the node should have the new value '3'
+      val results = Rabit.broadcast(Array(newVal), 0)
+      Rabit.shutdown()
+      Iterator.single(results.head)
+    }.cache()
+
+    val collectedBroadcastResults = new LinkedBlockingDeque[Array[Int]]()
+    val sparkThread = new Thread() {
+      override def run(): Unit = {
+        broadcastResults.foreachPartition(() => _)
+        val byPartitionResults = broadcastResults.collect
+        assert(byPartitionResults.length == numWorkers)
+        collectedBroadcastResults.put(byPartitionResults)
+      }
+    }
+    sparkThread.start()
+    assert(tracker.waitFor(0L) == 0)
+    sparkThread.join()
+
+    assert(collectedBroadcastResults.poll().sameElements(expectedResults))
+  }
 }

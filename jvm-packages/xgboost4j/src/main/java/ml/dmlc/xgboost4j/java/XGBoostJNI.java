@@ -141,4 +141,7 @@ class XGBoostJNI {
   // This JNI function does not support the callback function for data preparation yet.
   final static native int RabitAllreduce(ByteBuffer sendrecvbuf, int count,
                                                 int enum_dtype, int enum_op);
+
+  // Perform Broadcast operation on data in sendrecvbuf.
+  final static native int RabitBroadcast(ByteBuffer sendrecvbuf, long size, int root);
 }

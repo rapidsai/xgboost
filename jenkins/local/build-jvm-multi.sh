@@ -24,7 +24,7 @@ BUILD_ARG="-DskipTests -Dmaven.repo.local=$WORKSPACE/.m2"
 
 if [ "$SIGN_FILE" == true ]; then
     # Build javadoc and sources only when SIGN_JAR
-    BUILD_ARG="$BUILD_ARG -Prelease-to-sonatype"
+    BUILD_ARG="$BUILD_ARG -s settings.xml -Prelease-to-sonatype,sonatype-stage"
 fi
 
 ###### Build jar and its libraries ######
@@ -39,7 +39,7 @@ rm -rf ../build
 ## 2) Build libxgboost4j.so for CUDA10.0 and the jar file
 rm -rf ../build
 . /opt/tools/to_cuda10.0.sh
-mvn clean package $BUILD_ARG
+mvn -B clean package $BUILD_ARG
 
 ###### Stash jar files for modules ######
 stashJars xgboost4j

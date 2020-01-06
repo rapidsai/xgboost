@@ -1026,3 +1026,16 @@ JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_RabitAllreduce
 
   return 0;
 }
+
+/*
+ * Class:     ml_dmlc_xgboost4j_java_XGBoostJNI
+ * Method:    RabitBroadcast
+ * Signature: (Ljava/nio/ByteBuffer;JI)I
+ */
+JNIEXPORT jint JNICALL Java_ml_dmlc_xgboost4j_java_XGBoostJNI_RabitBroadcast
+  (JNIEnv *jenv, jclass jcls, jobject jsendrecvbuf, jlong jsize, jint root) {
+  // Get direct buffer
+  void *ptr_sendrecvbuf = jenv->GetDirectBufferAddress(jsendrecvbuf);
+  RabitBroadcast(ptr_sendrecvbuf, jsize, root);
+  return 0;
+}

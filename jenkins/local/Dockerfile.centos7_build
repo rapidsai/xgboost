@@ -43,6 +43,7 @@ ENV LD_LIBRARY_PATH /usr/local/nvidia/lib:/usr/local/nvidia/lib64
 ARG CUDA_A=cuda9.2
 ARG CUDA_B=cuda10.0
 ARG CUDA_C=cuda10.1
+ARG RAPIDS_VERSION=0.9.0
 
 # install basic softwares
 RUN yum install -y zlib-devel bzip2 centos-release-scl && \
@@ -84,14 +85,14 @@ RUN conda init --all && \
     conda create -y -n ${CUDA_B} python=3.7 && \
     conda create -y -n ${CUDA_C} python=3.7 && \
     conda activate ${CUDA_A} && \
-    conda install -y -c rapidsai-nightly/label/${CUDA_A} libcudf librmm && \
+    conda install -y -c rapidsai-nightly/label/${CUDA_A} -c rapidsai/label/${CUDA_A} -c numba -c conda-forge -c defaults libcudf=${RAPIDS_VERSION} librmm=${RAPIDS_VERSION} && \
     conda activate ${CUDA_B} && \
-    conda install -y -c rapidsai-nightly/label/${CUDA_B} libcudf librmm && \
+    conda install -y -c rapidsai-nightly/label/${CUDA_B} -c rapidsai/label/${CUDA_B} -c numba -c conda-forge -c defaults libcudf=${RAPIDS_VERSION} librmm=${RAPIDS_VERSION} && \
     conda activate ${CUDA_C} && \
-    conda install -y -c rapidsai-nightly/label/${CUDA_B} libcudf librmm
+    conda install -y -c rapidsai-nightly/label/${CUDA_B} -c rapidsai/label/${CUDA_B} -c numba -c conda-forge -c defaults libcudf=${RAPIDS_VERSION} librmm=${RAPIDS_VERSION}
 
-# Note: we install cuda10.0 label of libcudf & librmm to cuda10.1, because there's no cuda10.1 for rapidsai-nightly
-# We only use header file, so it's ok
+# Note: We install cuda10.0 label of libcudf & librmm to conda env cuda10.1,
+#       because there's no libcudf 0.9.0 or librmm 0.9.0 on cuda10.1.
 
 # set default environments
 RUN ln -s cuda-10.0 /usr/local/cuda && \

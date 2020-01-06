@@ -3,6 +3,7 @@
 // -*- mode: groovy -*-
 // Jenkins pipeline
 // See documents at https://jenkins.io/doc/book/pipeline/jenkinsfile/
+@Library('shared-libs') _
 
 import groovy.transform.Field
 
@@ -44,13 +45,15 @@ pipeline {
         stage('Jenkins: Build & Test') {
             agent { label 'docker-gpu' }
             steps {
-                unstash name: 'srcs'
-                script {
-                    def dockerImage = docker.build(
-                        'xgboost-dev-centos7-build',
-                        '-f jenkins/local/Dockerfile.centos7_build jenkins/local')
-                    dockerImage.inside('--runtime=nvidia -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group') {
-                        sh 'scl enable devtoolset-7 jenkins/local/build-jvm-premerge.sh'
+                withMergedBranch {
+                    unstash name: 'srcs'
+                    script {
+                        def dockerImage = docker.build(
+                            'xgboost-dev-centos7-build',
+                            '-f jenkins/local/Dockerfile.centos7_build jenkins/local')
+                        dockerImage.inside('--runtime=nvidia -v /etc/passwd:/etc/passwd -v /etc/group:/etc/group') {
+                            sh 'scl enable devtoolset-7 jenkins/local/build-jvm-premerge.sh'
+                        }
                     }
                 }
             }

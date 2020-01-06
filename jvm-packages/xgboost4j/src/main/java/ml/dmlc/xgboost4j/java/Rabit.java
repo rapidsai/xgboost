@@ -142,4 +142,27 @@ public class Rabit {
 
     return results;
   }
+
+  /**
+   * perform Broadcast on distributed int vectors.
+   *
+   * @param data local data on distributed workers.
+   * @param root the root of process.
+   * @return The data from broadcast worker.
+   */
+  public static int[] broadcast(int[] data, int root) {
+    if (data == null) return null;
+    int size = DataType.INT.getSize() * data.length;
+    ByteBuffer buffer = ByteBuffer.allocateDirect(size).order(ByteOrder.nativeOrder());
+    // Init buffer
+    for (int el : data) {
+      buffer.putInt(el);
+    }
+    buffer.flip();
+
+    XGBoostJNI.RabitBroadcast(buffer, size, root);
+    int[] results = new int[data.length];
+    buffer.asIntBuffer().get(results);
+    return results;
+  }
 }

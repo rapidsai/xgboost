@@ -23,6 +23,8 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.nio.file.Paths;
+import java.util.Optional;
+import java.util.ArrayList;
 
 import static org.apache.spark.sql.types.DataTypes.FloatType;
 import static org.apache.spark.sql.types.DataTypes.IntegerType;
@@ -34,10 +36,16 @@ import static org.junit.Assume.assumeTrue;
  */
 public class GpuColumnBatchTest {
 
-  private final String TEST_CSV_PATH =
-          this.getClass().getResource("/rank-weight.csv").getPath();
+  private final String TEST_CSV_PATH = Optional
+          .ofNullable(this.getClass().getResource("/rank-weight.csv"))
+          .orElseThrow(() -> new RuntimeException("Resource rank-weight.csv does not exist"))
+          .getPath();
+  private final String TEST_CSV_PATH2 = Optional
+          .ofNullable(this.getClass().getResource("/rank-weight2.csv"))
+          .orElseThrow(() -> new RuntimeException("Resource rank-weight2.csv does not exist"))
+          .getPath();
 
-  // Schemas for spark and CUDF
+  // Schemas for spark and cuDF
   private final Schema CUDF_SCHEMA = Schema.builder()
           .column(DType.FLOAT32, "label")
           .column(DType.FLOAT32, "a")
@@ -64,29 +72,71 @@ public class GpuColumnBatchTest {
 
   @After
   public void tearDown() {
-    mTestTable.close();
-    mTestTable = null;
+    if (mTestTable != null) {
+      mTestTable.close();
+      mTestTable = null;
+    }
   }
 
   @Test
-  public void testCountOnColumnHost() {
-    // The expected result is computed from file "rank.test.csv" manually.
-    int[] expected = new int[]{7, 5, 9, 6, 6, 8, 7, 6, 5, 7};
+  public void groupAndAggregateOnColumnsHostOneTable() {
+    ArrayList<Integer> groupInfo = new ArrayList();
+    ArrayList<Float> weightInfo = new ArrayList();
+    int groupId = 0;
+    // The expected result is computed from file "rank-weight.csv" manually.
+    Integer[] expectedGroupInfo = new Integer[]{7, 5, 9, 6, 6, 8, 7, 6, 5, 5};
+    Float[] expectedWeightInfo = new Float[]{10f, 9f, 8f, 7f, 6f, 5f, 4f, 3f, 2f, 1f};
     GpuColumnBatch columnBatch = new GpuColumnBatch(mTestTable, DB_SCHEMA);
-    int[] groupInfo = columnBatch.groupByColumnWithCountHost(4);
-    assertArrayEquals(expected, groupInfo);
+    // normal case one table
+    groupId = columnBatch.groupAndAggregateOnColumnsHost(4, 5, groupId,
+            groupInfo, weightInfo);
+    assertArrayEquals(expectedGroupInfo, groupInfo.toArray(new Integer[]{}));
+    assertEquals(10, groupId);
+    assertArrayEquals(expectedWeightInfo, weightInfo.toArray(new Float[]{}));
+
+    groupInfo.clear();
+    weightInfo.clear();
+    groupId = 0;
+    // no weight
+    groupId = columnBatch.groupAndAggregateOnColumnsHost(4, -1, groupId,
+            groupInfo, weightInfo);
+    assertArrayEquals(expectedGroupInfo, groupInfo.toArray(new Integer[]{}));
+    assertEquals(10, groupId);
+    assertEquals(0, weightInfo.size());
   }
 
   @Test
-  public void testOneOnColumn() {
+  public void groupAndAggregateOnColumnsHostTwoTables() {
+    ArrayList<Integer> groupInfo = new ArrayList();
+    ArrayList<Float> weightInfo = new ArrayList();
+    int groupId = 0;
+    Table table2 = Table.readCSV(CUDF_SCHEMA, Paths.get(TEST_CSV_PATH2).toFile());
+    // The expected result is computed from file "rank-weight.csv" and "rank-weight2.csv"
+    // manually.
+    Integer[] expectedGroupInfo = new Integer[]{7, 5, 9, 6, 6, 8, 7, 6, 5, 7, 7, 5, 9};
+    Float[] expectedWeightInfo = new Float[]{10f, 9f, 8f, 7f, 6f, 5f, 4f, 3f, 2f, 1f, 10f, 9f, 8f};
     GpuColumnBatch columnBatch = new GpuColumnBatch(mTestTable, DB_SCHEMA);
-    // treat first column as weight for failure case
-    long[] handles = columnBatch.groupByColumnWithAggregation(4, 0, true);
-    assertNull(handles);
-    long[] handlesNoCheck = columnBatch.groupByColumnWithAggregation(4, 0, false);
-    assertNotNull(handlesNoCheck);
-    // normal case
-    long[] handlesWeight = columnBatch.groupByColumnWithAggregation(4, 5, true);
-    assertNotNull(handlesWeight);
+    GpuColumnBatch columnBatch2 = new GpuColumnBatch(table2, DB_SCHEMA);
+    // normal case two tables
+    groupId = columnBatch.groupAndAggregateOnColumnsHost(4, 5, groupId,
+            groupInfo, weightInfo);
+    groupId = columnBatch2.groupAndAggregateOnColumnsHost(4, 5, groupId,
+            groupInfo, weightInfo);
+    assertArrayEquals(expectedGroupInfo, groupInfo.toArray(new Integer[]{}));
+    assertEquals(13, groupId);
+    assertArrayEquals(expectedWeightInfo, weightInfo.toArray(new Float[]{}));
+
+    groupInfo.clear();
+    weightInfo.clear();
+    groupId = 0;
+    // no weight
+    groupId = columnBatch.groupAndAggregateOnColumnsHost(4, -1, groupId,
+            groupInfo, weightInfo);
+    groupId = columnBatch2.groupAndAggregateOnColumnsHost(4, -1, groupId,
+            groupInfo, weightInfo);
+    assertArrayEquals(expectedGroupInfo, groupInfo.toArray(new Integer[]{}));
+    assertEquals(13, groupId);
+    assertEquals(0, weightInfo.size());
+    table2.close();
   }
 }
